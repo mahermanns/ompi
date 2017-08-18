@@ -36,7 +36,8 @@ check_PROGRAMS = \
 	opal_value_array \
 	opal_pointer_array \
 	opal_lifo \
-	opal_fifo
+	opal_fifo \
+	opal_interval_tree
 
 TESTS = $(check_PROGRAMS)
 
@@ -100,6 +101,12 @@ opal_fifo_LDADD = \
         $(top_builddir)/opal/lib@OPAL_LIB_PREFIX@open-pal.la \
 	$(top_builddir)/test/support/libsupport.a
 opal_fifo_DEPENDENCIES = $(opal_fifo_LDADD)
+
+opal_interval_tree_SOURCES = opal_interval_tree.c
+opal_interval_tree_LDADD = \
+        $(top_builddir)/opal/lib@OPAL_LIB_PREFIX@open-pal.la \
+	$(top_builddir)/test/support/libsupport.a
+opal_interval_tree_DEPENDENCIES = $(opal_interval_tree_LDADD)
 
 clean-local:
 	rm -f opal_bitmap_test_out.txt opal_hash_table_test_out.txt opal_proc_table_test_out.txt
