@@ -155,6 +155,7 @@ int mca_btl_ugni_device_init (mca_btl_ugni_device_t *device, int virtual_device_
     device->dev_rdma_local_irq_cq.active_operations = 0;
     device->dev_smsg_local_cq.gni_handle = 0;
     device->dev_smsg_local_cq.active_operations = 0;
+    device->callbacks_outstanding = 0;
     device->flushed = true;
 
     return OPAL_SUCCESS;

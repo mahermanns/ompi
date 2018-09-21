@@ -60,6 +60,7 @@ mca_btl_ugni_module_t mca_btl_ugni_module = {
         .btl_atomic_fop     = mca_btl_ugni_afop,
         .btl_atomic_cswap   = mca_btl_ugni_acswap,
         .btl_flush          = mca_btl_ugni_flush,
+        .btl_flush_thread   = mca_btl_ugni_flush_thread,
     }
 };
 

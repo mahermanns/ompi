@@ -161,6 +161,7 @@ static inline intptr_t _mca_btl_ugni_cq_get_completed_desc_device (mca_btl_ugni_
     gni_post_descriptor_t *desc;
     gni_cq_entry_t event_data;
     int rc, desc_index = 0;
+    int callbacks = 0;
 
     for (desc_index = 0 ; desc_index < count && cq->active_operations ; ) {
         int desc_rc = OPAL_SUCCESS;
@@ -196,12 +197,17 @@ static inline intptr_t _mca_btl_ugni_cq_get_completed_desc_device (mca_btl_ugni_
         if (rdma_desc->btl_ugni_desc.cbfunc || rdma_desc->btl_ugni_desc.use_bte || OPAL_SUCCESS != desc_rc) {
             post_desc[desc_index] = rdma_desc->btl_ugni_desc;
             post_desc[desc_index++].rc = desc_rc;
+            callbacks += !!rdma_desc->btl_ugni_desc.cbfunc;
         }
 
         /* return the descriptor while we have the lock. this is done so we can avoid using the
          * free list atomics (as both push and pop are done with the lock) */
         mca_btl_ugni_return_rdma_desc (rdma_desc);
         --cq->active_operations;
+    }
+
+    if (callbacks) {
+        OPAL_THREAD_FETCH_ADD32(&device->callbacks_outstanding, callbacks);
     }
 
     return desc_index;

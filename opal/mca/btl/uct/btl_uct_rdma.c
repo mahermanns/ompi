@@ -104,7 +104,6 @@ int mca_btl_uct_get (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoi
     } else {
         uct_iov_t iov = {.buffer = local_address, .length = size, .stride = 0, .count = 1,
                          .memh = MCA_BTL_UCT_REG_REMOTE_TO_LOCAL(local_handle)->uct_memh};
-
         ucs_status = uct_ep_get_zcopy (ep_handle, &iov, 1, remote_address, rkey.rkey, &comp->uct_comp);
     }
 
@@ -234,51 +233,11 @@ int mca_btl_uct_put (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoi
 
 int mca_btl_uct_flush (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoint)
 {
-    mca_btl_uct_module_t *uct_btl = (mca_btl_uct_module_t *) btl;
     const int tl_index = uct_btl->rdma_tl->tl_index;
-    const int context_count = mca_btl_uct_component.num_contexts_per_module;
     ucs_status_t ucs_status;
-
-    BTL_VERBOSE(("mca_btl_uct_flush starting"));
-
-    for (int i = 0 ; i < context_count ; ++i) {
-        mca_btl_uct_device_context_t *context = uct_btl->rdma_tl->uct_dev_contexts[i];
-
-        if (NULL == context) {
-            continue;
-        }
-
-        mca_btl_uct_context_lock (context);
-        /* this loop is here because at least some of the TLs do no support a
-         * completion callback. its a real PIA but has to be done for now. */
-        do {
-            uct_worker_progress (context->uct_worker);
-
-            if (NULL != endpoint && endpoint->uct_eps[context->context_id][tl_index].uct_ep) {
-                ucs_status = uct_ep_flush (endpoint->uct_eps[context->context_id][tl_index].uct_ep, 0, NULL);
-            } else {
-                ucs_status = uct_iface_flush (context->uct_iface, 0, NULL);
-            }
-        } while (UCS_INPROGRESS == ucs_status);
-
-        mca_btl_uct_context_unlock (context);
-        mca_btl_uct_device_handle_completions (context);
-    }
-
-    return OPAL_SUCCESS;
-}
-
-int mca_btl_uct_flush_thread (mca_btl_base_module_t *btl)
-{
-    mca_btl_uct_module_t *uct_btl = (mca_btl_uct_module_t *) btl;
-    const int context_id = mca_btl_uct_get_context_index ();
-    mca_btl_uct_device_context_t *context = uct_btl->rdma_tl->uct_dev_contexts[context_id];
-    ucs_status_t ucs_status;
-
-    BTL_VERBOSE(("mca_btl_uct_flush_thread starting"));
 
     if (NULL == context) {
-        return OPAL_SUCCESS;
+        return;
     }
 
     mca_btl_uct_context_lock (context);
@@ -286,13 +245,50 @@ int mca_btl_uct_flush_thread (mca_btl_base_module_t *btl)
     /* this loop is here because at least some of the TLs do no support a
      * completion callback. its a real PIA but has to be done for now. */
     do {
-        uct_worker_progress (context->uct_worker);
-        ucs_status = uct_iface_flush (context->uct_iface, 0, NULL);
+        if (NULL != endpoint && endpoint->uct_eps[context->context_id][tl_index].uct_ep) {
+            ucs_status = uct_ep_flush (endpoint->uct_eps[context->context_id][tl_index].uct_ep, 0, NULL);
+        } else {
+            ucs_status = uct_iface_flush (context->uct_iface, 0, NULL);
+        }
+
+        if (UCS_INPROGRESS == ucs_status) {
+            /* spin for awhile (or until something happens on this context) */
+            for (int i = 0 ; i < 100 ; ++i) {
+                if (!uct_worker_progress (context->uct_worker)) {
+                    break;
+                }
+            }
+        }
     } while (UCS_INPROGRESS == ucs_status);
 
     mca_btl_uct_context_unlock (context);
 
     mca_btl_uct_device_handle_completions (context);
+}
+
+int mca_btl_uct_flush (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoint)
+{
+    mca_btl_uct_module_t *uct_btl = (mca_btl_uct_module_t *) btl;
+    const int context_count = mca_btl_uct_component.num_contexts_per_module;
+
+    BTL_VERBOSE(("mca_btl_uct_flush starting"));
+
+    for (int i = 0 ; i < context_count ; ++i) {
+        mca_btl_uct_device_context_t *context = uct_btl->rdma_tl->uct_dev_contexts[i];
+
+        mca_btl_uct_flush_module_context (uct_btl, context, endpoint);
+    }
 
     return OPAL_SUCCESS;
+}
+
+int mca_btl_uct_flush_thread (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoint)
+{
+    mca_btl_uct_module_t *uct_btl = (mca_btl_uct_module_t *) btl;
+    const int context_id = mca_btl_uct_get_context_index ();
+    mca_btl_uct_device_context_t *context = uct_btl->rdma_tl->uct_dev_contexts[context_id];
+
+    BTL_VERBOSE(("mca_btl_uct_flush_thread starting"));
+
+    mca_btl_uct_flush_module_context (uct_btl, context, endpoint);
 }

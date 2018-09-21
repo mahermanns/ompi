@@ -320,6 +320,7 @@ mca_btl_uct_module_t mca_btl_uct_module_template = {
         .btl_atomic_fop     = mca_btl_uct_afop,
         .btl_atomic_cswap   = mca_btl_uct_acswap,
         .btl_flush          = mca_btl_uct_flush,
+        .btl_flush_thread   = mca_btl_uct_flush_thread,
 
         .btl_sendi          = mca_btl_uct_sendi,
         .btl_prepare_src    = mca_btl_uct_prepare_src,
