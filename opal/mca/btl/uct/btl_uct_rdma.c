@@ -231,9 +231,9 @@ int mca_btl_uct_put (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoi
     return OPAL_LIKELY(UCS_OK == ucs_status) ? OPAL_SUCCESS : OPAL_ERR_RESOURCE_BUSY;
 }
 
-int mca_btl_uct_flush (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoint)
+static void mca_btl_uct_flush_module_context (mca_btl_uct_module_t *uct_btl, mca_btl_uct_device_context_t *context,
+                                              mca_btl_base_endpoint_t *endpoint)
 {
-    mca_btl_uct_module_t *uct_btl = (mca_btl_uct_module_t *) btl;
     const int tl_index = uct_btl->rdma_tl->tl_index;
     ucs_status_t ucs_status;
 
