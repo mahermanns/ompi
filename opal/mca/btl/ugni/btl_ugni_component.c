@@ -622,6 +622,7 @@ int mca_btl_ugni_progress_datagram (mca_btl_ugni_device_t *device)
 void mca_btl_ugni_handle_rdma_completions (mca_btl_ugni_module_t *ugni_module, mca_btl_ugni_device_t *device,
                                            struct mca_btl_ugni_post_descriptor_t *post_desc, const int count)
 {
+    int callbacks = 0;
     int bte_complete = 0;
 
     for (int i = 0 ; i < count ; ++i) {
@@ -635,10 +636,15 @@ void mca_btl_ugni_handle_rdma_completions (mca_btl_ugni_module_t *ugni_module, m
         bte_complete += post_desc[i].use_bte == true;
 
         mca_btl_ugni_post_desc_complete (ugni_module, post_desc + i, post_desc[i].rc);
+        callbacks += (NULL != post_desc[i].cbfunc);
     }
 
     if (bte_complete > 0)  {
         (void) OPAL_THREAD_FETCH_ADD32 (&ugni_module->active_rdma_count, -bte_complete);
+    }
+
+    if (callbacks) {
+        (void) OPAL_THREAD_FETCH_ADD32 (&device->callbacks_outstanding, -callbacks);
     }
 }
 
@@ -696,6 +702,26 @@ mca_btl_ugni_progress_wait_list (mca_btl_ugni_module_t *ugni_module)
     return rc;
 }
 
+static int mca_btl_ugni_component_progress_rdma (void)
+{
+    mca_btl_ugni_module_t *ugni_module = mca_btl_ugni_component.modules;
+    int count = 0;
+
+    for (int i = 0 ; i < mca_btl_ugni_component.virtual_device_count ; ++i) {
+        mca_btl_ugni_device_t *device = ugni_module->devices + i;
+
+        if (device->dev_rdma_local_cq.active_operations) {
+            count += mca_btl_ugni_progress_rdma (ugni_module, device, &device->dev_rdma_local_cq);
+        }
+
+        if (mca_btl_ugni_component.progress_thread_enabled && device->dev_rdma_local_irq_cq.active_operations) {
+            count += mca_btl_ugni_progress_rdma (ugni_module, device, &device->dev_rdma_local_irq_cq);
+        }
+    }
+
+    return count;
+}
+
 static int mca_btl_ugni_component_progress (void)
 {
     mca_btl_ugni_module_t *ugni_module = mca_btl_ugni_component.modules;
@@ -714,15 +740,9 @@ static int mca_btl_ugni_component_progress (void)
             count += mca_btl_ugni_progress_local_smsg (ugni_module, device);
             mca_btl_ugni_progress_wait_list (ugni_module);
         }
-
-        if (device->dev_rdma_local_cq.active_operations) {
-            count += mca_btl_ugni_progress_rdma (ugni_module, device, &device->dev_rdma_local_cq);
-        }
-
-        if (mca_btl_ugni_component.progress_thread_enabled && device->dev_rdma_local_irq_cq.active_operations) {
-            count += mca_btl_ugni_progress_rdma (ugni_module, device, &device->dev_rdma_local_irq_cq);
-        }
     }
+
+    count += mca_btl_ugni_component_progress_rdma ();
 
     return count;
 }
@@ -741,9 +761,37 @@ int mca_btl_ugni_flush (mca_btl_base_module_t *btl, struct mca_btl_base_endpoint
             (void) mca_btl_ugni_progress_rdma (ugni_module, device, &device->dev_rdma_local_cq);
         }
 
+        while (device->callbacks_outstanding);
+
         /* mark that the device was recently flushed */
         device->flushed = true;
     }
+
+    return OPAL_SUCCESS;
+}
+
+int mca_btl_ugni_flush_thread (mca_btl_base_module_t *btl, struct mca_btl_base_endpoint_t *endpoint)
+{
+    mca_btl_ugni_module_t *ugni_module = mca_btl_ugni_component.modules;
+    mca_btl_ugni_device_t *device = mca_btl_ugni_thread_get_device (ugni_module);
+
+    if (OPAL_UNLIKELY(NULL == device)) {
+        /* ack, gotta flush them all */
+        return mca_btl_ugni_flush (btl, endpoint);
+    }
+
+    /* spin on progress until all active operations are complete. it is tempting to
+     * take an initial count then wait until that many operations have been completed
+     * but it is impossible to tell if those are the operations the caller is waiting
+     * on. */
+    while (device->dev_rdma_local_cq.active_operations) {
+        (void) mca_btl_ugni_progress_rdma (ugni_module, device, &device->dev_rdma_local_cq);
+    }
+
+    while (device->callbacks_outstanding);
+
+    /* mark that the device was recently flushed */
+    device->flushed = true;
 
     return OPAL_SUCCESS;
 }

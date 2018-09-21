@@ -256,43 +256,39 @@ mca_btl_uct_device_context_t *mca_btl_uct_context_create (mca_btl_uct_module_t *
     OBJ_CONSTRUCT(&context->completion_fifo, opal_fifo_t);
     OBJ_CONSTRUCT(&context->mutex, opal_recursive_mutex_t);
 
-    do {
-        /* apparently (in contradiction to the spec) UCT is *not* thread safe. because we have to
-         * use our own locks just go ahead and use UCS_THREAD_MODE_SINGLE. if they ever fix their
-         * api then change this back to UCS_THREAD_MODE_MULTI and remove the locks around the
-         * various UCT calls. */
-        ucs_status = uct_worker_create (module->ucs_async, UCS_THREAD_MODE_SINGLE, &context->uct_worker);
-        if (UCS_OK != ucs_status) {
-            BTL_VERBOSE(("could not create a UCT worker"));
-            mca_btl_uct_context_destroy (context);
-            context = NULL;
-            break;
-        }
+    /* apparently (in contradiction to the spec) UCT is *not* thread safe. because we have to
+     * use our own locks just go ahead and use UCS_THREAD_MODE_SINGLE. if they ever fix their
+     * api then change this back to UCS_THREAD_MODE_MULTI and remove the locks around the
+     * various UCT calls. */
+    ucs_status = uct_worker_create (module->ucs_async, UCS_THREAD_MODE_SERIALIZED, &context->uct_worker);
+    if (OPAL_UNLIKELY(UCS_OK != ucs_status)) {
+        BTL_VERBOSE(("could not create a UCT worker"));
+        mca_btl_uct_context_destroy (context);
+        return NULL;
+    }
 
-        ucs_status = uct_iface_open (tl->uct_md->uct_md, context->uct_worker, &iface_params,
-                                     tl->uct_tl_config, &context->uct_iface);
-        if (UCS_OK != ucs_status) {
-            BTL_VERBOSE(("could not open UCT interface. error code: %d", ucs_status));
-            mca_btl_uct_context_destroy (context);
-            context = NULL;
-            break;
-        }
+    ucs_status = uct_iface_open (tl->uct_md->uct_md, context->uct_worker, &iface_params,
+                                 tl->uct_tl_config, &context->uct_iface);
+    if (OPAL_UNLIKELY(UCS_OK != ucs_status)) {
+        BTL_VERBOSE(("could not open UCT interface. error code: %d", ucs_status));
+        mca_btl_uct_context_destroy (context);
+        return NULL;
+    }
 
-        BTL_VERBOSE(("enabling progress for tl %p context id %d", (void *) tl, context_id));
+    BTL_VERBOSE(("enabling progress for tl %p context id %d", (void *) tl, context_id));
 
 #if HAVE_DECL_UCT_PROGRESS_THREAD_SAFE
-        uct_iface_progress_enable (context->uct_iface, UCT_PROGRESS_THREAD_SAFE | UCT_PROGRESS_SEND |
-                                   UCT_PROGRESS_RECV);
+    uct_iface_progress_enable (context->uct_iface, UCT_PROGRESS_THREAD_SAFE | UCT_PROGRESS_SEND |
+                               UCT_PROGRESS_RECV);
 #else
-        uct_iface_progress_enable (context->uct_iface, UCT_PROGRESS_SEND | UCT_PROGRESS_RECV);
+    uct_iface_progress_enable (context->uct_iface, UCT_PROGRESS_SEND | UCT_PROGRESS_RECV);
 #endif
 
-	if (context_id > 0 && tl == module->am_tl) {
-	    BTL_VERBOSE(("installing AM handler for tl %p context id %d", (void *) tl, context_id));
-	    uct_iface_set_am_handler (context->uct_iface, MCA_BTL_UCT_FRAG, mca_btl_uct_am_handler,
-                                      context, UCT_CB_FLAG_SYNC);
-	}
-    } while (0);
+    if (context_id > 0 && tl == module->am_tl) {
+        BTL_VERBOSE(("installing AM handler for tl %p context id %d", (void *) tl, context_id));
+        uct_iface_set_am_handler (context->uct_iface, MCA_BTL_UCT_FRAG, mca_btl_uct_am_handler,
+                                  context, UCT_CB_FLAG_SYNC);
+    }
 
     return context;
 }

@@ -116,6 +116,8 @@ struct mca_btl_ugni_device_t {
     /** number of SMSG connections */
     opal_atomic_int32_t smsg_connections;
 
+    opal_atomic_int32_t callbacks_outstanding;
+
     /** boolean indicating that the device was recently flushed */
     volatile bool flushed;
 
@@ -303,10 +305,10 @@ OPAL_MODULE_DECLSPEC extern mca_btl_ugni_module_t mca_btl_ugni_module;
 
 static inline uint32_t mca_btl_ugni_ep_get_device_index (mca_btl_ugni_module_t *ugni_module)
 {
-    static volatile uint32_t device_index = (uint32_t) 0;
+    static opal_atomic_uint32_t device_index = (uint32_t) 0;
 
     /* don't really care if the device index is atomically updated */
-    return opal_atomic_fetch_add_32 ((volatile int32_t *) &device_index, 1) % mca_btl_ugni_component.virtual_device_count;
+    return opal_atomic_fetch_add_32 ((opal_atomic_int32_t *) &device_index, 1) % mca_btl_ugni_component.virtual_device_count;
 }
 
 /**
@@ -338,6 +340,7 @@ static inline int mca_btl_rc_ugni_to_opal (gni_return_t rc)
 
 
 int mca_btl_ugni_flush (mca_btl_base_module_t *btl, struct mca_btl_base_endpoint_t *endpoint);
+int mca_btl_ugni_flush_thread (mca_btl_base_module_t *btl, struct mca_btl_base_endpoint_t *endpoint);
 
 /**
  * BML->BTL notification of change in the process list.
@@ -558,6 +561,28 @@ static inline intptr_t mca_btl_ugni_device_serialize (mca_btl_ugni_device_t *dev
     return rc;
 }
 
+static mca_btl_ugni_device_t *mca_btl_ugni_thread_get_device (mca_btl_ugni_module_t *ugni_module)
+{
+#if OPAL_C_HAVE__THREAD_LOCAL
+    if (mca_btl_ugni_component.bind_threads_to_devices) {
+        /* NTH: if we have C11 _Thread_local just go ahead and assign the devices round-robin to each
+         * thread. in testing this give much better performance than just picking any device */
+        static _Thread_local mca_btl_ugni_device_t *device_local = NULL;
+        mca_btl_ugni_device_t *device;
+
+        device = device_local;
+        if (OPAL_UNLIKELY(NULL == device)) {
+            /* assign device contexts round-robin */
+            device_local = device = mca_btl_ugni_ep_get_device (ugni_module);
+        }
+
+        return device;
+    }
+#endif
+
+    return NULL;
+}
+
 static inline intptr_t mca_btl_ugni_device_serialize_any (mca_btl_ugni_module_t *ugni_module,
                                                           mca_btl_ugni_device_serialize_fn_t fn, void *arg)
 {
@@ -569,17 +594,8 @@ static inline intptr_t mca_btl_ugni_device_serialize_any (mca_btl_ugni_module_t 
     }
 
 #if OPAL_C_HAVE__THREAD_LOCAL
-    if (mca_btl_ugni_component.bind_threads_to_devices) {
-        /* NTH: if we have C11 _Thread_local just go ahead and assign the devices round-robin to each
-         * thread. in testing this give much better performance than just picking any device */
-        static _Thread_local mca_btl_ugni_device_t *device_local = NULL;
-
-        device = device_local;
-        if (OPAL_UNLIKELY(NULL == device)) {
-            /* assign device contexts round-robin */
-            device_local = device = mca_btl_ugni_ep_get_device (ugni_module);
-        }
-
+    device = mca_btl_ugni_thread_get_device (ugni_module);
+    if (OPAL_LIKELY(NULL != device)) {
         mca_btl_ugni_device_lock (device);
     } else {
 #endif

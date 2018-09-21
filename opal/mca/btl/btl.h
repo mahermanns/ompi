@@ -1252,7 +1252,9 @@ struct mca_btl_base_module_t {
 
     mca_btl_base_module_flush_fn_t btl_flush; /**< flush all previous operations on an endpoint */
 
-    unsigned char padding[256]; /**< padding to future-proof the btl module */
+    mca_btl_base_module_flush_fn_t btl_flush_thread; /**< flush all previous operations on an endpoint on this thread */
+
+    unsigned char padding[248]; /**< padding to future-proof the btl module */
 };
 typedef struct mca_btl_base_module_t mca_btl_base_module_t;
 
@@ -1271,7 +1273,7 @@ typedef struct mca_btl_base_module_t mca_btl_base_module_t;
 /**
  * Convinience macro for detecting the BTL interface version.
  */
-#define BTL_VERSION 310
+#define BTL_VERSION 311
 
 END_C_DECLS
 

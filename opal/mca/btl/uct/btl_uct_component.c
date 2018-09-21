@@ -28,6 +28,10 @@
 #include "opal/mca/btl/base/base.h"
 #include "opal/mca/hwloc/base/base.h"
 #include "opal/util/argv.h"
+#include "opal/memoryhooks/memory.h"
+#include "opal/mca/memory/base/base.h"
+#include <ucm/api/ucm.h>
+
 
 #include <string.h>
 
@@ -93,6 +97,11 @@ static int mca_btl_uct_component_register(void)
                                         &module->super);
 }
 
+static void mca_btl_uct_mem_release_cb(void *buf, size_t length, void *cbdata, bool from_alloc)
+{
+    ucm_vm_munmap(buf, length);
+}
+
 static int mca_btl_uct_component_open(void)
 {
     if (0 == mca_btl_uct_component.num_contexts_per_module) {
@@ -112,6 +121,15 @@ static int mca_btl_uct_component_open(void)
         }
     }
 
+    if (mca_btl_uct_component.num_contexts_per_module > MCA_BTL_UCT_MAX_WORKERS) {
+        mca_btl_uct_component.num_contexts_per_module = MCA_BTL_UCT_MAX_WORKERS;
+    }
+
+    if (mca_btl_uct_component.disable_ucx_memory_hooks) {
+        ucm_set_external_event(UCM_EVENT_VM_UNMAPPED);
+        opal_mem_hooks_register_release(mca_btl_uct_mem_release_cb, NULL);
+    }
+
     return OPAL_SUCCESS;
 }
 
@@ -121,6 +139,10 @@ static int mca_btl_uct_component_open(void)
  */
 static int mca_btl_uct_component_close(void)
 {
+    if (mca_btl_uct_component.disable_ucx_memory_hooks) {
+        opal_mem_hooks_unregister_release (mca_btl_uct_mem_release_cb);
+    }
+
     return OPAL_SUCCESS;
 }
 

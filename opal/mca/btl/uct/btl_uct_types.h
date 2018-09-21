@@ -36,7 +36,7 @@ struct mca_btl_uct_base_frag_t;
 /** maximum number of modules supported by the btl component */
 #define MCA_BTL_UCT_MAX_MODULES 16
 /** maximum number of UCT workers */
-#define MCA_BTL_UCT_MAX_WORKERS 64
+#define MCA_BTL_UCT_MAX_WORKERS 128
 
 /**
  * @brief MODEx data

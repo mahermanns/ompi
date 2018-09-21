@@ -269,7 +269,7 @@ int mca_btl_uct_acswap (struct mca_btl_base_module_t *btl, struct mca_btl_base_e
 
 
 int mca_btl_uct_flush (struct mca_btl_base_module_t *btl, struct mca_btl_base_endpoint_t *endpoint);
-int mca_btl_uct_flush_thread (mca_btl_base_module_t *btl);
+int mca_btl_uct_flush_thread (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoint);
 
 int mca_btl_uct_finalize (mca_btl_base_module_t *btl);
 
