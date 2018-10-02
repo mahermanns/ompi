@@ -14,7 +14,7 @@
 # Copyright (c) 2011      Sandia National Laboratories. All rights reserved.
 # Copyright (c) 2012      Oak Ridge National Laboratory. All rights reserved.
 # Copyright (c) 2012-2013 Inria.  All rights reserved.
-# Copyright (c) 2013      Los Alamos National Security, LLC. All rights
+# Copyright (c) 2013-2018 Los Alamos National Security, LLC. All rights
 #                         reserved.
 # Copyright (c) 2015-2018 Research Organization for Information Science
 #                         and Technology (RIST). All rights reserved.
@@ -389,6 +389,10 @@ nodist_libmpi_c_pmpi_la_SOURCES = \
 	pwin_flush_all.c \
 	pwin_flush_local.c \
 	pwin_flush_local_all.c \
+	pwin_flush_thread.c \
+	pwin_flush_all_thread.c \
+	pwin_flush_local_thread.c \
+	pwin_flush_local_all_thread.c \
         pwin_free_keyval.c \
         pwin_free.c \
         pwin_get_attr.c \
