@@ -25,6 +25,8 @@
 static inline void ompi_osc_rdma_cleanup_rdma (ompi_osc_rdma_sync_t *sync, bool dec_always, ompi_osc_rdma_frag_t *frag,
                                                mca_btl_base_registration_handle_t *handle, ompi_osc_rdma_request_t *request)
 {
+    unsigned counter_id = ompi_osc_rdma_sync_get_counter_id ();
+
     if (frag) {
         ompi_osc_rdma_frag_complete (frag);
     } else {
@@ -36,9 +38,9 @@ static inline void ompi_osc_rdma_cleanup_rdma (ompi_osc_rdma_sync_t *sync, bool 
     }
 
     if (dec_always) {
-        ompi_osc_rdma_sync_rdma_dec_always (sync);
+        ompi_osc_rdma_sync_rdma_dec_always (sync, counter_id);
     } else {
-        ompi_osc_rdma_sync_rdma_dec (sync);
+        ompi_osc_rdma_sync_rdma_dec (sync, counter_id);
     }
 }
 
@@ -383,6 +385,9 @@ static void ompi_osc_rdma_put_complete (struct mca_btl_base_module_t *btl, struc
                                         void *context, void *data, int status)
 {
     ompi_osc_rdma_sync_t *sync = (ompi_osc_rdma_sync_t *) context;
+    unsigned counter_id = (unsigned) ((uintptr_t) data & 0xff);
+
+    data = (void *)((uintptr_t) data >> 8);
 
     assert (OPAL_SUCCESS == status);
 
@@ -404,7 +409,7 @@ static void ompi_osc_rdma_put_complete (struct mca_btl_base_module_t *btl, struc
         ompi_osc_rdma_deregister (sync->module, local_handle);
     }
 
-    ompi_osc_rdma_sync_rdma_dec (sync);
+    ompi_osc_rdma_sync_rdma_dec (sync, counter_id);
 }
 
 static void ompi_osc_rdma_put_complete_flush (struct mca_btl_base_module_t *btl, struct mca_btl_base_endpoint_t *endpoint,
@@ -479,7 +484,7 @@ int ompi_osc_rdma_put_contig (ompi_osc_rdma_sync_t *sync, ompi_osc_rdma_peer_t *
     mca_btl_base_rdma_completion_fn_t cbfunc = NULL;
     ompi_osc_rdma_frag_t *frag = NULL;
     char *ptr = source_buffer;
-    void *cbcontext;
+    void *cbcontext, *data;
     int ret;
 
     if (module->selected_btl->btl_register_mem && size > module->selected_btl->btl_put_local_registration_threshold) {
@@ -504,11 +509,13 @@ int ompi_osc_rdma_put_contig (ompi_osc_rdma_sync_t *sync, ompi_osc_rdma_peer_t *
          * removed */
         cbcontext = (void *) module;
         if (request || local_handle || frag) {
+            data = frag;
             cbfunc = ompi_osc_rdma_put_complete_flush;
         }
         /* else the callback function is a no-op so do not bother specifying one */
     } else {
         cbcontext = (void *) sync;
+        data = (void *) (((uintptr_t) frag << 8) | ompi_osc_rdma_sync_get_counter_id ());
         cbfunc = ompi_osc_rdma_put_complete;
     }
 
@@ -520,7 +527,7 @@ int ompi_osc_rdma_put_contig (ompi_osc_rdma_sync_t *sync, ompi_osc_rdma_peer_t *
     }
 
     ret = ompi_osc_rdma_put_real (sync, peer, target_address, target_handle, ptr, local_handle, size, cbfunc,
-                                  cbcontext, frag);
+                                  cbcontext, data);
     if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
         ompi_osc_rdma_cleanup_rdma (sync, false, frag, local_handle, request);
     }
@@ -551,10 +558,10 @@ static void ompi_osc_rdma_get_complete (struct mca_btl_base_module_t *btl, struc
 
     if (NULL == request->buffer) {
         /* completion detection can handle this case without the counter when using btl_flush */
-        ompi_osc_rdma_sync_rdma_dec (sync);
+        ompi_osc_rdma_sync_rdma_dec (sync, request->counter_id);
     } else {
         /* the counter was needed to keep track of the number of outstanding operations */
-        ompi_osc_rdma_sync_rdma_dec_always (sync);
+        ompi_osc_rdma_sync_rdma_dec_always (sync, request->counter_id);
     }
 
     if (NULL != frag) {
@@ -680,6 +687,7 @@ static int ompi_osc_rdma_get_contig (ompi_osc_rdma_sync_t *sync, ompi_osc_rdma_p
     request->len = size;
     request->origin_addr = target_buffer;
     request->sync = sync;
+    request->counter_id = ompi_osc_rdma_sync_get_counter_id ();
 
     if (request->buffer) {
         /* always increment the outstanding RDMA counter as the btl_flush function does not guarantee callback completion,

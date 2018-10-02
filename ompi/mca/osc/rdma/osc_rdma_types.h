@@ -14,6 +14,8 @@
 
 #include "ompi_config.h"
 
+#define OMPI_OSC_RDMA_MAX_COUNTERS 64
+
 /* forward declarations of some other component types */
 struct ompi_osc_rdma_frag_t;
 struct ompi_osc_rdma_sync_t;

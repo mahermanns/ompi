@@ -140,6 +140,11 @@ ompi_osc_base_module_t ompi_osc_rdma_module_rdma_template = {
     .osc_flush_all = ompi_osc_rdma_flush_all,
     .osc_flush_local = ompi_osc_rdma_flush_local,
     .osc_flush_local_all = ompi_osc_rdma_flush_local_all,
+
+    .osc_flush_thread = ompi_osc_rdma_flush_thread,
+    .osc_flush_all_thread = ompi_osc_rdma_flush_all_thread,
+    .osc_flush_local_thread = ompi_osc_rdma_flush_local_thread,
+    .osc_flush_local_all_thread = ompi_osc_rdma_flush_local_all_thread,
 };
 
 /* look up parameters for configuring this window.  The code first

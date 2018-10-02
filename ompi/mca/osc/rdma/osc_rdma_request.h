@@ -50,6 +50,8 @@ struct ompi_osc_rdma_request_t {
 
     uint64_t target_address;
 
+    unsigned counter_id;
+
     struct ompi_osc_rdma_request_t *parent_request;
     /* used for non-contiguous get accumulate operations */
     opal_convertor_t convertor;

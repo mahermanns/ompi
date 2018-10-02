@@ -128,4 +128,58 @@ int ompi_osc_rdma_flush_local (int target, struct ompi_win_t *win);
  */
 int ompi_osc_rdma_flush_local_all (struct ompi_win_t *win);
 
+/**
+ * @brief flush rdma transactions to a target
+ *
+ * @param[in] target           target process
+ * @param[in] win              mpi window
+ *
+ * @returns OMPI_SUCCESS on success
+ * @returns OMPI_ERR_RMA_SYNC if the target is not locked
+ */
+int ompi_osc_rdma_flush_thread (int target, struct ompi_win_t *win);
+
+/**
+ * @brief flush rdma transactions to all target(s)
+ *
+ * @param[in] win              mpi window
+ *
+ * @returns OMPI_SUCCESS on success
+ * @returns OMPI_ERR_RMA_SYNC if no processes are locked
+ *
+ * osc/rdma does not make a distinction between local and remote rma
+ * completion. this could change in a future release as small messages
+ * may be internally buffered.
+ */
+int ompi_osc_rdma_flush_all_thread (struct ompi_win_t *win);
+
+/**
+ * @brief flush rdma transactions to a target (local completion)
+ *
+ * @param[in] target           target process
+ * @param[in] win              mpi window
+ *
+ * @returns OMPI_SUCCESS on success
+ * @returns OMPI_ERR_RMA_SYNC if the target is not locked
+ *
+ * osc/rdma does not make a distinction between local and remote rma
+ * completion. this could change in a future release as small messages
+ * may be internally buffered.
+ */
+int ompi_osc_rdma_flush_local_thread (int target, struct ompi_win_t *win);
+
+/**
+ * @brief flush rdma transactions to all target(s) (local completion)
+ *
+ * @param[in] win              mpi window
+ *
+ * @returns OMPI_SUCCESS on success
+ * @returns OMPI_ERR_RMA_SYNC if no processes are locked
+ *
+ * osc/rdma does not make a distinction between local and remote rma
+ * completion. this could change in a future release as small messages
+ * may be internally buffered.
+ */
+int ompi_osc_rdma_flush_local_all_thread (struct ompi_win_t *win);
+
 #endif
