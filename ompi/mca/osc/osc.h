@@ -404,6 +404,11 @@ struct ompi_osc_base_module_3_0_0_t {
     ompi_osc_base_module_flush_all_fn_t osc_flush_all;
     ompi_osc_base_module_flush_local_fn_t osc_flush_local;
     ompi_osc_base_module_flush_local_all_fn_t osc_flush_local_all;
+
+    ompi_osc_base_module_flush_fn_t osc_flush_thread;
+    ompi_osc_base_module_flush_all_fn_t osc_flush_all_thread;
+    ompi_osc_base_module_flush_local_fn_t osc_flush_local_thread;
+    ompi_osc_base_module_flush_local_all_fn_t osc_flush_local_all_thread;
 };
 typedef struct ompi_osc_base_module_3_0_0_t ompi_osc_base_module_3_0_0_t;
 typedef ompi_osc_base_module_3_0_0_t ompi_osc_base_module_t;

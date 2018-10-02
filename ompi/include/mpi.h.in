@@ -1841,6 +1841,12 @@ OMPI_DECLSPEC  int MPI_Win_flush(int rank, MPI_Win win);
 OMPI_DECLSPEC  int MPI_Win_flush_all(MPI_Win win);
 OMPI_DECLSPEC  int MPI_Win_flush_local(int rank, MPI_Win win);
 OMPI_DECLSPEC  int MPI_Win_flush_local_all(MPI_Win win);
+
+OMPI_DECLSPEC  int MPI_Win_flush_thread(int rank, MPI_Win win);
+OMPI_DECLSPEC  int MPI_Win_flush_all_thread(MPI_Win win);
+OMPI_DECLSPEC  int MPI_Win_flush_local_thread(int rank, MPI_Win win);
+OMPI_DECLSPEC  int MPI_Win_flush_local_all_thread(MPI_Win win);
+
 OMPI_DECLSPEC  int MPI_Win_free(MPI_Win *win);
 OMPI_DECLSPEC  int MPI_Win_free_keyval(int *win_keyval);
 OMPI_DECLSPEC  int MPI_Win_get_attr(MPI_Win win, int win_keyval,
@@ -2502,6 +2508,12 @@ OMPI_DECLSPEC  int PMPI_Win_flush(int rank, MPI_Win win);
 OMPI_DECLSPEC  int PMPI_Win_flush_all(MPI_Win win);
 OMPI_DECLSPEC  int PMPI_Win_flush_local(int rank, MPI_Win win);
 OMPI_DECLSPEC  int PMPI_Win_flush_local_all(MPI_Win win);
+
+OMPI_DECLSPEC  int PMPI_Win_flush_thread(int rank, MPI_Win win);
+OMPI_DECLSPEC  int PMPI_Win_flush_all_thread(MPI_Win win);
+OMPI_DECLSPEC  int PMPI_Win_flush_local_thread(int rank, MPI_Win win);
+OMPI_DECLSPEC  int PMPI_Win_flush_local_all_thread(MPI_Win win);
+
 OMPI_DECLSPEC  int PMPI_Win_free(MPI_Win *win);
 OMPI_DECLSPEC  int PMPI_Win_free_keyval(int *win_keyval);
 OMPI_DECLSPEC  int PMPI_Win_get_attr(MPI_Win win, int win_keyval,
