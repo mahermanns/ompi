@@ -97,6 +97,9 @@ struct ompi_osc_rdma_sync_t {
     /** outstanding rdma operations on epoch */
     ompi_osc_rdma_sync_aligned_counter_t outstanding_rdma __opal_attribute_aligned__(64);
 
+    /** used to thread out the counter load */
+    ompi_osc_rdma_sync_aligned_counter_t outstanding_rdma_thread[OMPI_OSC_RDMA_MAX_COUNTERS];
+
     /** lock to protect sync structure members */
     opal_mutex_t lock;
 };
@@ -137,9 +140,23 @@ void ompi_osc_rdma_sync_return (ompi_osc_rdma_sync_t *rdma_sync);
 bool ompi_osc_rdma_sync_pscw_peer (struct ompi_osc_rdma_module_t *module, int target, struct ompi_osc_rdma_peer_t **peer);
 
 
-static inline int64_t ompi_osc_rdma_sync_get_count (ompi_osc_rdma_sync_t *rdma_sync)
+static inline int64_t ompi_osc_rdma_sync_get_count (ompi_osc_rdma_sync_t *rdma_sync, int counter_id)
 {
+#if 0
     return rdma_sync->outstanding_rdma.counter;
+#else
+    int64_t counter = 0;
+
+    if (-1 == counter_id) {
+        for (unsigned i = 0 ; i < OMPI_OSC_RDMA_MAX_COUNTERS ; ++i) {
+            counter += rdma_sync->outstanding_rdma_thread[i].counter;
+        }
+    } else {
+        counter = rdma_sync->outstanding_rdma_thread[counter_id].counter;
+    }
+
+    return counter;
+#endif
 }
 
 #endif /* OSC_RDMA_SYNC_H */

@@ -110,6 +110,85 @@ int ompi_osc_rdma_flush_local_all (struct ompi_win_t *win)
     return ompi_osc_rdma_flush_all (win);
 }
 
+/* thread flushing functions */
+
+int ompi_osc_rdma_flush_thread (int target, struct ompi_win_t *win)
+{
+    ompi_osc_rdma_module_t *module = GET_MODULE(win);
+    ompi_osc_rdma_sync_t *lock;
+    ompi_osc_rdma_peer_t *peer;
+
+    assert (0 <= target);
+
+    OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_TRACE, "flush: %d, %s", target, win->w_name);
+
+    OPAL_THREAD_LOCK(&module->lock);
+
+    lock = ompi_osc_rdma_module_sync_lookup (module, target, &peer);
+    if (OPAL_UNLIKELY(NULL == lock || OMPI_OSC_RDMA_SYNC_TYPE_LOCK != lock->type)) {
+        OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_INFO, "flush: target %d is not locked in window %s",
+                         target, win->w_name);
+        OPAL_THREAD_UNLOCK(&module->lock);
+        return OMPI_ERR_RMA_SYNC;
+    }
+    OPAL_THREAD_UNLOCK(&module->lock);
+
+    /* finish all outstanding fragments */
+    ompi_osc_rdma_sync_rdma_complete_thread (lock);
+
+    OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_TRACE, "flush on target %d complete", target);
+
+    return OMPI_SUCCESS;
+}
+
+
+int ompi_osc_rdma_flush_all_thread (struct ompi_win_t *win)
+{
+    ompi_osc_rdma_module_t *module = GET_MODULE(win);
+    ompi_osc_rdma_sync_t *lock;
+    int ret = OMPI_SUCCESS;
+    uint32_t key;
+    void *node;
+
+    /* flush is only allowed from within a passive target epoch */
+    if (!ompi_osc_rdma_in_passive_epoch (module)) {
+        return OMPI_ERR_RMA_SYNC;
+    }
+
+    OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_TRACE, "flush_all: %s", win->w_name);
+
+    /* globally complete all outstanding rdma requests */
+    if (OMPI_OSC_RDMA_SYNC_TYPE_LOCK == module->all_sync.type) {
+        ompi_osc_rdma_sync_rdma_complete (&module->all_sync);
+    }
+
+    /* flush all locks */
+    ret = opal_hash_table_get_first_key_uint32 (&module->outstanding_locks, &key, (void **) &lock, &node);
+    while (OPAL_SUCCESS == ret) {
+        OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_DEBUG, "flushing lock %p", (void *) lock);
+        ompi_osc_rdma_sync_rdma_complete_thread (lock);
+        ret = opal_hash_table_get_next_key_uint32 (&module->outstanding_locks, &key, (void **) &lock,
+                                                   node, &node);
+    }
+
+    OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_TRACE, "flush_all complete");
+
+    return OPAL_SUCCESS;
+}
+
+
+int ompi_osc_rdma_flush_local_thread (int target, struct ompi_win_t *win)
+{
+    return ompi_osc_rdma_flush_thread (target, win);
+}
+
+
+int ompi_osc_rdma_flush_local_all_thread (struct ompi_win_t *win)
+{
+    return ompi_osc_rdma_flush_all_thread (win);
+}
+
+
 /* locking via atomics */
 static inline int ompi_osc_rdma_lock_atomic_internal (ompi_osc_rdma_module_t *module, ompi_osc_rdma_peer_t *peer,
                                                       ompi_osc_rdma_sync_t *lock)

@@ -509,6 +509,23 @@ static bool ompi_osc_rdma_use_btl_flush (ompi_osc_rdma_module_t *module)
 #endif
 }
 
+static inline unsigned ompi_osc_rdma_sync_get_counter_id (void)
+{
+#if HAVE_OPAL_THREAD_LOCAL
+    static opal_atomic_int32_t next_counter_id = 0;
+    static opal_thread_local int my_counter_id = -1;
+    int counter_id = my_counter_id;
+
+    if (-1 == counter_id) {
+        counter_id = my_counter_id = opal_atomic_fetch_add_32 (&next_counter_id, 1) & (OMPI_OSC_RDMA_MAX_COUNTERS - 1);
+    }
+
+    return (unsigned) counter_id;
+#else
+    return 0;
+#endif
+}
+
 /**
  * @brief increment the outstanding rdma operation counter (atomic)
  *
@@ -516,7 +533,13 @@ static bool ompi_osc_rdma_use_btl_flush (ompi_osc_rdma_module_t *module)
  */
 static inline void ompi_osc_rdma_sync_rdma_inc_always (ompi_osc_rdma_sync_t *rdma_sync)
 {
+    unsigned counter_id = ompi_osc_rdma_sync_get_counter_id ();
+
+#if 0
     ompi_osc_rdma_counter_add (&rdma_sync->outstanding_rdma.counter, 1);
+#else
+    ompi_osc_rdma_counter_add (&rdma_sync->outstanding_rdma_thread[counter_id].counter, 1);
+#endif
 
     OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_INFO, "inc: there are %ld outstanding rdma operations",
                      (unsigned long) rdma_sync->outstanding_rdma.counter);
@@ -537,23 +560,28 @@ static inline void ompi_osc_rdma_sync_rdma_inc (ompi_osc_rdma_sync_t *rdma_sync)
  *
  * @param[in] rdma_sync         osc rdma synchronization object
  */
-static inline void ompi_osc_rdma_sync_rdma_dec_always (ompi_osc_rdma_sync_t *rdma_sync)
+static inline void ompi_osc_rdma_sync_rdma_dec_always (ompi_osc_rdma_sync_t *rdma_sync, unsigned counter_id)
 {
     opal_atomic_wmb ();
+
+#if 0
     ompi_osc_rdma_counter_add (&rdma_sync->outstanding_rdma.counter, -1);
+#else
+    ompi_osc_rdma_counter_add (&rdma_sync->outstanding_rdma_thread[counter_id].counter, -1);
+#endif
 
     OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_INFO, "dec: there are %ld outstanding rdma operations",
                      (unsigned long) rdma_sync->outstanding_rdma.counter);
 }
 
-static inline void ompi_osc_rdma_sync_rdma_dec (ompi_osc_rdma_sync_t *rdma_sync)
+static inline void ompi_osc_rdma_sync_rdma_dec (ompi_osc_rdma_sync_t *rdma_sync, unsigned counter_id)
 {
 #if defined(BTL_VERSION) && (BTL_VERSION >= 310)
     if (ompi_osc_rdma_use_btl_flush (rdma_sync->module)) {
         return;
     }
 #endif
-    ompi_osc_rdma_sync_rdma_dec_always (rdma_sync);
+    ompi_osc_rdma_sync_rdma_dec_always (rdma_sync, counter_id);
 }
 
 /**
@@ -570,13 +598,40 @@ static inline void ompi_osc_rdma_sync_rdma_complete (ompi_osc_rdma_sync_t *sync)
 #else
     mca_btl_base_module_t *btl_module = sync->module->selected_btl;
 
+    if (ompi_osc_rdma_use_btl_flush (sync->module)) {
+        btl_module->btl_flush (btl_module, NULL);
+        return;
+    }
+
     do {
-        if (!ompi_osc_rdma_use_btl_flush (sync->module)) {
-            opal_progress ();
-        } else {
-            btl_module->btl_flush (btl_module, NULL);
-        }
-    }  while (ompi_osc_rdma_sync_get_count (sync) || (sync->module->rdma_frag && (sync->module->rdma_frag->pending > 1)));
+        opal_progress ();
+    }  while (ompi_osc_rdma_sync_get_count (sync, -1));
+#endif
+}
+
+/**
+ * @brief complete all outstanding rdma operations to all peers
+ *
+ * @param[in] module          osc rdma module
+ */
+static inline void ompi_osc_rdma_sync_rdma_complete_thread (ompi_osc_rdma_sync_t *sync)
+{
+#if !defined(BTL_VERSION) || (BTL_VERSION < 310)
+    do {
+        opal_progress ();
+    }  while (ompi_osc_rdma_sync_get_count (sync));
+#else
+    mca_btl_base_module_t *btl_module = sync->module->selected_btl;
+    const unsigned counter_id = ompi_osc_rdma_sync_get_counter_id ();
+
+    if (ompi_osc_rdma_use_btl_flush (sync->module)) {
+        btl_module->btl_flush_thread (btl_module, NULL);
+        return;
+    }
+
+    do {
+        opal_progress ();
+    }  while (ompi_osc_rdma_sync_get_count (sync, counter_id));
 #endif
 }
 
