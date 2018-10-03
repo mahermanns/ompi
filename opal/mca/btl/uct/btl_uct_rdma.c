@@ -233,6 +233,7 @@ int mca_btl_uct_put (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoi
 
 int mca_btl_uct_flush (mca_btl_base_module_t *btl, mca_btl_base_endpoint_t *endpoint)
 {
+    mca_btl_uct_module_t *uct_btl = (mca_btl_uct_module_t *) btl;
     const int tl_index = uct_btl->rdma_tl->tl_index;
     ucs_status_t ucs_status;
 
