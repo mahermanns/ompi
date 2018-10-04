@@ -91,6 +91,7 @@ int ompi_osc_rdma_attach (struct ompi_win_t *win, void *base, size_t len)
     ompi_osc_rdma_module_t *module = GET_MODULE(win);
     const int my_rank = ompi_comm_rank (module->comm);
     ompi_osc_rdma_peer_t *my_peer = ompi_osc_rdma_module_peer (module, my_rank);
+    ompi_osc_rdma_handle_t *rdma_handle;
     ompi_osc_rdma_region_t *region;
     osc_rdma_counter_t region_count;
     osc_rdma_counter_t region_id;
@@ -150,15 +151,15 @@ int ompi_osc_rdma_attach (struct ompi_win_t *win, void *base, size_t len)
         if (region_index < region_count) {
             memmove ((void *) ((intptr_t) region + module->region_size), region, (region_count - region_index) * module->region_size);
 
-            if (module->selected_btl->btl_register_mem) {
-                memmove (module->dynamic_handles + region_index + 1, module->dynamic_handles + region_index,
-                         (region_count - region_index) * sizeof (module->dynamic_handles[0]));
-            }
+            memmove (module->dynamic_handles + region_index + 1, module->dynamic_handles + region_index,
+                     (region_count - region_index) * sizeof (module->dynamic_handles[0]));
         }
     } else {
         region_index = 0;
         region = (ompi_osc_rdma_region_t *) module->state->regions;
     }
+
+    rdma_handle = module->dynamic_handles + region_index;
 
     region->base = (intptr_t) base;
     region->len  = len;
@@ -166,23 +167,20 @@ int ompi_osc_rdma_attach (struct ompi_win_t *win, void *base, size_t len)
     OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_DEBUG, "attaching dynamic memory region {%p, %p} at index %d",
                      base, (void *)((intptr_t) base + len), region_index);
 
-    if (module->selected_btl->btl_register_mem) {
-        mca_btl_base_registration_handle_t *handle;
+    rdma_handle->btl_handle_count = module->btl_count;
 
-        ret = ompi_osc_rdma_register (module, MCA_BTL_ENDPOINT_ANY, (void *) region->base, region->len, MCA_BTL_REG_FLAG_ACCESS_ANY,
-                                      &handle);
-        if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
-            OPAL_THREAD_UNLOCK(&module->lock);
-            return OMPI_ERR_RMA_ATTACH;
-        }
-
-        memcpy (region->btl_handle_data, handle, module->selected_btl->btl_registration_handle_size);
-        module->dynamic_handles[region_index].btl_handle = handle;
-    } else {
-        module->dynamic_handles[region_index].btl_handle = NULL;
+    ret = ompi_osc_rdma_register_all (module, (void *) region->base, region->len, MCA_BTL_REG_FLAG_ACCESS_ANY,
+                                      rdma_handle->btl_handles, &rdma_handle->btl_handle_count);
+    if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
+        OPAL_THREAD_UNLOCK(&module->lock);
+        return OMPI_ERR_RMA_ATTACH;
     }
 
-    module->dynamic_handles[region_index].refcnt = 1;
+    if (rdma_handle->btl_handle_count) {
+        ompi_osc_rdma_region_pack_handles (module, region, rdma_handle->btl_handles);
+    }
+
+    rdma_handle->refcnt = 1;
 
 #if OPAL_ENABLE_DEBUG
     for (int i = 0 ; i < region_count + 1 ; ++i) {
@@ -248,16 +246,14 @@ int ompi_osc_rdma_detach (struct ompi_win_t *win, const void *base)
     OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_DEBUG, "detaching dynamic memory region {%p, %p} from index %d",
                      base, (void *)((intptr_t) base + region->len), region_index);
 
-    if (module->selected_btl->btl_register_mem) {
-        ompi_osc_rdma_deregister (module, module->dynamic_handles[region_index].btl_handle);
-
-        if (region_index < region_count - 1) {
-            memmove (module->dynamic_handles + region_index, module->dynamic_handles + region_index + 1,
-                     (region_count - region_index - 1) * sizeof (void *));
-        }
-
-        memset (module->dynamic_handles + region_count - 1, 0, sizeof (module->dynamic_handles[0]));
+    ompi_osc_rdma_deregister_all (module, module->dynamic_handles[region_index].btl_handles,
+                                  module->dynamic_handles[region_index].btl_handle_count);
+    if (region_index < region_count - 1) {
+        memmove (module->dynamic_handles + region_index, module->dynamic_handles + region_index + 1,
+                 (region_count - region_index - 1) * sizeof (void *));
     }
+
+    memset (module->dynamic_handles + region_count - 1, 0, sizeof (module->dynamic_handles[0]));
 
     if (region_index < region_count - 1) {
         memmove (region, (void *)((intptr_t) region + module->region_size),

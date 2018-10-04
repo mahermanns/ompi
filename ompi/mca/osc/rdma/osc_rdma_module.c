@@ -79,7 +79,8 @@ int ompi_osc_rdma_free(ompi_win_t *win)
         int region_count = module->state->region_count & 0xffffffffL;
         if (NULL != module->dynamic_handles) {
             for (int i = 0 ; i < region_count ; ++i) {
-                ompi_osc_rdma_deregister (module, module->dynamic_handles[i].btl_handle);
+                ompi_osc_rdma_deregister_all (module, module->dynamic_handles[i].btl_handles,
+                                              module->dynamic_handles[i].btl_handle_count);
             }
 
             free (module->dynamic_handles);
@@ -91,13 +92,16 @@ int ompi_osc_rdma_free(ompi_win_t *win)
     OBJ_DESTRUCT(&module->peer_lock);
     OBJ_DESTRUCT(&module->all_sync);
 
-    ompi_osc_rdma_deregister (module, module->state_handle);
-    ompi_osc_rdma_deregister (module, module->base_handle);
+    ompi_osc_rdma_deregister (module, module->selected_btls, module->state_handle);
+    for (int i = 0 ; i < module->btl_count ; ++i) {
+        ompi_osc_rdma_deregister (module, module->selected_btls + i, module->base_handles[i]);
+    }
 
     OPAL_LIST_DESTRUCT(&module->pending_posts);
 
     if (NULL != module->rdma_frag) {
-        ompi_osc_rdma_deregister (module, module->rdma_frag->handle);
+        _ompi_osc_rdma_frag_deregister (module->rdma_frag);
+        opal_free_list_return (&mca_osc_rdma_component.frags, &module->rdma_frag->super);
     }
 
     /* remove all cached peers */

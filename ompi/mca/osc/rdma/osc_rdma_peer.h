@@ -25,7 +25,7 @@ struct ompi_osc_rdma_peer_t {
     opal_list_item_t super;
 
     /** rdma data endpoint for this peer */
-    struct mca_btl_base_endpoint_t *data_endpoint;
+    struct mca_btl_base_endpoint_t *data_endpoints[OMPI_OSC_RDMA_MAX_BTLS];
 
     /** endpoint for reading/modifying peer state */
     struct mca_btl_base_endpoint_t *state_endpoint;
@@ -170,7 +170,17 @@ struct ompi_osc_rdma_peer_t *ompi_osc_rdma_peer_lookup (struct ompi_osc_rdma_mod
  * @returns btl endpoint for the peer on success
  * @returns NULL on failure
  */
-struct mca_btl_base_endpoint_t *ompi_osc_rdma_peer_btl_endpoint (struct ompi_osc_rdma_module_t *module, int peer_id);
+struct mca_btl_base_endpoint_t *ompi_osc_rdma_peer_btl_endpoint (struct ompi_osc_rdma_module_t *module,
+                                                                 int btl_index, int peer_id);
+
+/**
+ * @brief pack local handle data in peer
+ *
+ * @param[in]  module         osc rdma module
+ * @param[in]  peer           basic peer structure
+ * @param[in]  handles        handle pointer array
+ */
+void ompi_osc_rdma_peer_pack_handles (struct ompi_osc_rdma_module_t *module, ompi_osc_rdma_peer_basic_t *peer);
 
 /**
  * @brief check if this process holds an exclusive lock on a peer

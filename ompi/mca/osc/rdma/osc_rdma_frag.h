@@ -31,13 +31,18 @@ static inline void ompi_osc_rdma_frag_complete (ompi_osc_rdma_frag_t *frag)
     }
 }
 
+static inline void _ompi_osc_rdma_frag_deregister (ompi_osc_rdma_frag_t *buffer)
+{
+    ompi_osc_rdma_deregister_all (buffer->module, buffer->handles, buffer->handle_count);
+}
+
 /*
  * Note: module lock must be held during this operation
  */
 static inline int ompi_osc_rdma_frag_alloc (ompi_osc_rdma_module_t *module, size_t request_len,
                                             ompi_osc_rdma_frag_t **buffer, char **ptr)
 {
-    ompi_osc_rdma_frag_t *curr = module->rdma_frag;
+    ompi_osc_rdma_frag_t *curr = module->rdma_frag, *prev;
     int64_t my_index;
     int ret;
 
@@ -59,26 +64,29 @@ static inline int ompi_osc_rdma_frag_alloc (ompi_osc_rdma_module_t *module, size
 
         curr = (ompi_osc_rdma_frag_t *) item;
 
-        curr->handle = NULL;
+        memset (curr->handles, 0, sizeof (curr->handles));
+
         curr->pending = 1;
         curr->module = module;
         curr->curr_index = 0;
+        curr->handle_count = module->btl_count;
 
-        if (module->selected_btl->btl_register_mem) {
-            ret = ompi_osc_rdma_register (module, MCA_BTL_ENDPOINT_ANY, curr->super.ptr, mca_osc_rdma_component.buffer_size,
-                                          MCA_BTL_REG_FLAG_ACCESS_ANY, &curr->handle);
-            if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
-                return OMPI_ERR_OUT_OF_RESOURCE;
-            }
+        OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_INFO, "registering fragment with btl(s)...");
+
+        ret = ompi_osc_rdma_register_all (module, curr->super.ptr, mca_osc_rdma_component.buffer_size,
+                                          MCA_BTL_REG_FLAG_ACCESS_ANY, curr->handles, &curr->handle_count);
+        if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
+            opal_free_list_return (&mca_osc_rdma_component.frags, &curr->super);
+            return OMPI_ERR_OUT_OF_RESOURCE;
         }
 
-        if (!opal_atomic_compare_exchange_strong_ptr ((opal_atomic_intptr_t *) &module->rdma_frag, &(intptr_t){0}, (intptr_t) curr)) {
-            ompi_osc_rdma_deregister (module, curr->handle);
-            curr->handle = NULL;
+        prev = NULL;
+        if (!opal_atomic_compare_exchange_strong_ptr (&module->rdma_frag, &prev, curr)) {
+            _ompi_osc_rdma_frag_deregister (curr);
 
             opal_free_list_return (&mca_osc_rdma_component.frags, &curr->super);
 
-            curr = module->rdma_frag;
+            curr = prev;
         }
     }
 

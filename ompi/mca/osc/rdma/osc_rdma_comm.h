@@ -38,8 +38,9 @@
  * @returns OMPI_ERR_RMA_RANGE if the address range is not valid at the remote window
  * @returns other OMPI error on error
  */
-static inline int osc_rdma_get_remote_segment (ompi_osc_rdma_module_t *module, ompi_osc_rdma_peer_t *peer, ptrdiff_t target_disp,
-                                               size_t length, uint64_t *remote_address, mca_btl_base_registration_handle_t **remote_handle)
+static inline int osc_rdma_get_remote_segment (ompi_osc_rdma_module_t *module, ompi_osc_rdma_selected_btl_t *selected_btl,
+                                               ompi_osc_rdma_peer_t *peer, ptrdiff_t target_disp, size_t length,
+                                               uint64_t *remote_address, mca_btl_base_registration_handle_t **remote_handle)
 {
     ompi_osc_rdma_region_t *region;
     int ret;
@@ -71,7 +72,7 @@ static inline int osc_rdma_get_remote_segment (ompi_osc_rdma_module_t *module, o
             return OMPI_ERR_RMA_RANGE;
         }
 
-        *remote_handle = ex_peer->super.base_handle;
+        *remote_handle = (mca_btl_base_registration_handle_t *) ((uintptr_t) ex_peer->super.base_handle + selected_btl->handle_offset);
     }
 
     OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_TRACE, "remote address: 0x%" PRIx64 ", handle: %p", *remote_address, (void *) *remote_handle);
@@ -117,8 +118,8 @@ int ompi_osc_get_data_blocking (ompi_osc_rdma_module_t *module, struct mca_btl_b
                                 uint64_t source_address, mca_btl_base_registration_handle_t *source_handle,
                                 void *data, size_t len);
 
-int ompi_osc_rdma_put_contig (ompi_osc_rdma_sync_t *sync, ompi_osc_rdma_peer_t *peer, uint64_t target_address,
-                              mca_btl_base_registration_handle_t *target_handle, void *source_buffer, size_t size,
-                              ompi_osc_rdma_request_t *request);
+int ompi_osc_rdma_put_contig (ompi_osc_rdma_sync_t *sync, ompi_osc_rdma_selected_btl_t *selected_btl, ompi_osc_rdma_peer_t *peer,
+                              uint64_t target_address, mca_btl_base_registration_handle_t *target_handle, void *source_buffer,
+                              size_t size, ompi_osc_rdma_request_t *request);
 
 #endif /* OMPI_OSC_RDMA_COMM_H */

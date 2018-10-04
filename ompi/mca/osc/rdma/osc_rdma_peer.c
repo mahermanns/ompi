@@ -33,8 +33,10 @@
  * @returns NULL on error
  * @returns btl endpoint on success
  */
-struct mca_btl_base_endpoint_t *ompi_osc_rdma_peer_btl_endpoint (struct ompi_osc_rdma_module_t *module, int peer_id)
+struct mca_btl_base_endpoint_t *ompi_osc_rdma_peer_btl_endpoint (struct ompi_osc_rdma_module_t *module, int btl_index,
+                                                                 int peer_id)
 {
+    mca_btl_base_module_t *btl = module->selected_btls[btl_index].btl;
     ompi_proc_t *proc = ompi_comm_peer_lookup (module->comm, peer_id);
     mca_bml_base_endpoint_t *bml_endpoint;
     int num_btls;
@@ -44,9 +46,9 @@ struct mca_btl_base_endpoint_t *ompi_osc_rdma_peer_btl_endpoint (struct ompi_osc
 
     num_btls = mca_bml_base_btl_array_get_size (&bml_endpoint->btl_rdma);
 
-    for (int btl_index = 0 ; btl_index < num_btls ; ++btl_index) {
-        if (bml_endpoint->btl_rdma.bml_btls[btl_index].btl == module->selected_btl) {
-            return bml_endpoint->btl_rdma.bml_btls[btl_index].btl_endpoint;
+    for (int bml_btl_index = 0 ; bml_btl_index < num_btls ; ++bml_btl_index) {
+        if (bml_endpoint->btl_rdma.bml_btls[bml_btl_index].btl == btl) {
+            return bml_endpoint->btl_rdma.bml_btls[bml_btl_index].btl_endpoint;
         }
     }
 
@@ -55,16 +57,11 @@ struct mca_btl_base_endpoint_t *ompi_osc_rdma_peer_btl_endpoint (struct ompi_osc
 }
 
 int ompi_osc_rdma_new_peer (struct ompi_osc_rdma_module_t *module, int peer_id, ompi_osc_rdma_peer_t **peer_out) {
-    struct mca_btl_base_endpoint_t *endpoint;
     ompi_osc_rdma_peer_t *peer;
+    int endpoint_count = module->btl_count;
+    int my_rank = ompi_comm_rank (module->comm);
 
     *peer_out = NULL;
-
-    endpoint = ompi_osc_rdma_peer_btl_endpoint (module, peer_id);
-    if (OPAL_UNLIKELY(NULL == endpoint && !((module->selected_btl->btl_atomic_flags & MCA_BTL_ATOMIC_SUPPORTS_GLOB) &&
-                                            peer_id == ompi_comm_rank (module->comm)))) {
-        return OMPI_ERR_UNREACH;
-    }
 
     if (MPI_WIN_FLAVOR_DYNAMIC == module->flavor) {
         peer = (ompi_osc_rdma_peer_t *) OBJ_NEW(ompi_osc_rdma_peer_dynamic_t);
@@ -75,8 +72,26 @@ int ompi_osc_rdma_new_peer (struct ompi_osc_rdma_module_t *module, int peer_id, 
         peer = (ompi_osc_rdma_peer_t *) OBJ_NEW(ompi_osc_rdma_peer_extended_t);
     }
 
-    peer->data_endpoint = endpoint;
-    peer->rank          = peer_id;
+    for (int i = 0 ; i < module->btl_count ; ++i) {
+        ompi_osc_rdma_selected_btl_t *selected_btl = module->selected_btls + i;
+        struct mca_btl_base_endpoint_t *endpoint = ompi_osc_rdma_peer_btl_endpoint (module, i, peer_id);
+
+        if (OPAL_UNLIKELY(NULL == endpoint && !((selected_btl->btl->btl_atomic_flags & MCA_BTL_ATOMIC_SUPPORTS_GLOB) &&
+                                                peer_id == my_rank))) {
+            endpoint = NULL;
+            --endpoint_count;
+        }
+
+        peer->data_endpoints[i] = endpoint;
+    }
+
+    if (OPAL_UNLIKELY(0 == endpoint_count)) {
+        OBJ_RELEASE(peer);
+        return OMPI_ERR_UNREACH;
+    }
+
+    peer->state_endpoint = peer->data_endpoints[0];
+    peer->rank = peer_id;
 
     *peer_out = peer;
 
@@ -101,16 +116,11 @@ static int ompi_osc_rdma_peer_setup (ompi_osc_rdma_module_t *module, ompi_osc_rd
     struct mca_btl_base_endpoint_t *array_endpoint;
     ompi_osc_rdma_region_t *array_peer_data, *node_peer_data;
     ompi_osc_rdma_rank_data_t rank_data;
-    int registration_handle_size = 0;
     int node_id, node_rank, array_index;
     int ret, disp_unit, comm_size;
     char *peer_data;
 
     OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_DEBUG, "configuring peer for rank %d", peer->rank);
-
-    if (module->selected_btl->btl_register_mem) {
-        registration_handle_size = module->selected_btl->btl_registration_handle_size;
-    }
 
     comm_size = ompi_comm_size (module->comm);
 
@@ -127,7 +137,7 @@ static int ompi_osc_rdma_peer_setup (ompi_osc_rdma_module_t *module, ompi_osc_rd
     array_pointer = array_peer_data->base + array_index * sizeof (rank_data);
 
     /* lookup the btl endpoint needed to retrieve the mapping */
-    array_endpoint = ompi_osc_rdma_peer_btl_endpoint (module, node_rank);
+    array_endpoint = ompi_osc_rdma_peer_btl_endpoint (module, 0, node_rank);
     if (OPAL_UNLIKELY(NULL == array_endpoint)) {
         return OMPI_ERR_UNREACH;
     }
@@ -135,7 +145,8 @@ static int ompi_osc_rdma_peer_setup (ompi_osc_rdma_module_t *module, ompi_osc_rd
     OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_DEBUG, "reading region data for %d from rank: %d, index: %d, pointer: 0x%" PRIx64
                      ", size: %lu", peer->rank, node_rank, array_index, array_pointer, sizeof (rank_data));
 
-    ret = ompi_osc_get_data_blocking (module, array_endpoint, array_pointer, (mca_btl_base_registration_handle_t *) array_peer_data->btl_handle_data,
+    ret = ompi_osc_get_data_blocking (module, array_endpoint, array_pointer,
+                                      (mca_btl_base_registration_handle_t *) array_peer_data->btl_handle_data,
                                       &rank_data, sizeof (rank_data));
     if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
         return ret;
@@ -146,13 +157,15 @@ static int ompi_osc_rdma_peer_setup (ompi_osc_rdma_module_t *module, ompi_osc_rd
      * of this by re-using the endpoint and pointer stored in the node_comm_info array. */
     node_peer_data = (ompi_osc_rdma_region_t *) ((intptr_t) module->node_comm_info + rank_data.node_id * module->region_size);
 
+    OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_DEBUG, "remote absolute base 0x%lx for node id %d", node_peer_data->base, rank_data.node_id);
+
     peer->state = node_peer_data->base + module->state_offset + module->state_size * rank_data.rank;
 
-    if (registration_handle_size) {
+    if (module->total_handle_size) {
         peer->state_handle = (mca_btl_base_registration_handle_t *) node_peer_data->btl_handle_data;
     }
 
-    peer->state_endpoint = ompi_osc_rdma_peer_btl_endpoint (module, NODE_ID_TO_RANK(module, node_peer_data, rank_data.node_id));
+    peer->state_endpoint = ompi_osc_rdma_peer_btl_endpoint (module, 0, NODE_ID_TO_RANK(module, node_peer_data, rank_data.node_id));
     if (OPAL_UNLIKELY(NULL == peer->state_endpoint)) {
         return OPAL_ERR_UNREACH;
     }
@@ -160,6 +173,14 @@ static int ompi_osc_rdma_peer_setup (ompi_osc_rdma_module_t *module, ompi_osc_rd
     /* nothing more to do for dynamic memory windows */
     if (MPI_WIN_FLAVOR_DYNAMIC == module->flavor) {
         return OMPI_SUCCESS;
+    }
+
+    if (MPI_WIN_FLAVOR_ALLOCATE == module->flavor) {
+        peer->data_endpoints[0] = peer->state_endpoint;
+        for (int i = 1 ; i < module->btl_count ; ++i) {
+            peer->data_endpoints[i] = ompi_osc_rdma_peer_btl_endpoint (module, i,
+                                                                       NODE_ID_TO_RANK(module, node_peer_data, rank_data.node_id));
+        }
     }
 
     /* read window data from the target rank */
@@ -172,6 +193,9 @@ static int ompi_osc_rdma_peer_setup (ompi_osc_rdma_module_t *module, ompi_osc_rd
 
     peer_data_size = module->state_size - peer_data_offset;
     peer_data = alloca (peer_data_size);
+
+    OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_DEBUG, "reading rank data from peer %d, data_offset 0x%lx, size %lu, state %lx",
+                     peer->rank, peer_data_offset, peer_data_size, peer->state);
 
     /* read window data from the end of the target's state structure */
     ret = ompi_osc_get_data_blocking (module, peer->state_endpoint, peer->state + peer_data_offset, peer->state_handle,
@@ -208,21 +232,18 @@ static int ompi_osc_rdma_peer_setup (ompi_osc_rdma_module_t *module, ompi_osc_rd
         ex_peer->size = base_region->len;
     }
 
-    if (base_region->len) {
-        if (registration_handle_size) {
-            ex_peer->super.base_handle = malloc (registration_handle_size);
-            if (OPAL_UNLIKELY(NULL == ex_peer->super.base_handle)) {
-                return OMPI_ERR_OUT_OF_RESOURCE;
-            }
-
-            peer->flags |= OMPI_OSC_RDMA_PEER_BASE_FREE;
-
-            memcpy (ex_peer->super.base_handle, base_region->btl_handle_data, registration_handle_size);
+    if (base_region->len && module->total_handle_size) {
+        ex_peer->super.base_handle = malloc (module->total_handle_size);
+        if (OPAL_UNLIKELY(NULL == ex_peer->super.base_handle)) {
+            return OMPI_ERR_OUT_OF_RESOURCE;
         }
 
-        if (MPI_WIN_FLAVOR_ALLOCATE == module->flavor) {
-            ex_peer->super.super.data_endpoint = ex_peer->super.super.state_endpoint;
-        }
+        peer->flags |= OMPI_OSC_RDMA_PEER_BASE_FREE;
+
+        memcpy (ex_peer->super.base_handle, base_region->btl_handle_data, module->total_handle_size);
+        OSC_RDMA_VERBOSE(MCA_BASE_VERBOSE_DEBUG, "peer %d region data: {%lx, %lx, %lx, %lx}\n", peer->rank,
+                         ((uint64_t *) ex_peer->super.base_handle)[0], ((uint64_t *) ex_peer->super.base_handle)[1],
+                         ((uint64_t *) ex_peer->super.base_handle)[2], ((uint64_t *) ex_peer->super.base_handle)[3]);
     }
 
     return OMPI_SUCCESS;
@@ -288,6 +309,34 @@ struct ompi_osc_rdma_peer_t *ompi_osc_rdma_peer_lookup (struct ompi_osc_rdma_mod
     return peer;
 }
 
+void ompi_osc_rdma_peer_pack_handles (struct ompi_osc_rdma_module_t *module, ompi_osc_rdma_peer_basic_t *peer)
+{
+    mca_btl_base_registration_handle_t *handle = (MPI_WIN_FLAVOR_ALLOCATE == module->flavor) ? module->state_handle :
+        module->base_handles[0];
+    uintptr_t ptr;
+
+    if (1 == module->btl_count || 0 == module->total_handle_size) {
+        peer->base_handle = handle;
+        return;
+    }
+
+    /* pack the handle data */
+    peer->super.flags |= OMPI_OSC_RDMA_PEER_BASE_FREE;
+    peer->base_handle = malloc (module->total_handle_size);
+    assert (NULL != peer->base_handle);
+    ptr = (uintptr_t) peer->base_handle;
+
+    if (handle) {
+        memcpy ((void *) ptr, handle, module->selected_btls[0].btl->btl_registration_handle_size);
+    }
+
+    for (int i = 1 ; i < module->btl_count ; ++i) {
+        ptr += module->selected_btls[i - 1].btl->btl_registration_handle_size;
+        if (module->base_handles[i]) {
+            memcpy ((void *) ptr, module->base_handles[i], module->selected_btls[0].btl->btl_registration_handle_size);
+        }
+    }
+}
 
 /******* peer objects *******/
 

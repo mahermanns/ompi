@@ -15,6 +15,7 @@
 #include "ompi_config.h"
 
 #define OMPI_OSC_RDMA_MAX_COUNTERS 64
+#define OMPI_OSC_RDMA_MAX_BTLS     4
 
 /* forward declarations of some other component types */
 struct ompi_osc_rdma_frag_t;
@@ -102,6 +103,13 @@ static inline int ompi_osc_rdma_lock_compare_exchange (opal_atomic_int32_t *p, i
 
 #endif /* OPAL_HAVE_ATOMIC_MATH_64 */
 
+struct ompi_osc_rdma_selected_btl_t {
+    mca_btl_base_module_t *btl;
+    int btl_index;
+    size_t handle_offset;
+};
+typedef struct ompi_osc_rdma_selected_btl_t ompi_osc_rdma_selected_btl_t;
+
 /**
  * @brief structure describing a window memory region
  */
@@ -125,7 +133,9 @@ typedef struct ompi_osc_rdma_region_t ompi_osc_rdma_region_t;
  */
 struct ompi_osc_rdma_handle_t {
     /** btl handle for the memory region */
-    mca_btl_base_registration_handle_t *btl_handle;
+    mca_btl_base_registration_handle_t *btl_handles[OMPI_OSC_RDMA_MAX_BTLS];
+    /** number of btl handles */
+    int btl_handle_count;
     /** number of attaches assocated with this region */
     int refcnt;
 };
@@ -165,7 +175,7 @@ struct ompi_osc_rdma_state_t {
     /** counter for number of post messages received  */
     osc_rdma_atomic_counter_t num_post_msgs;
     /** counter for number of complete messages received */
-    osc_rdma_counter_t num_complete_msgs;
+    osc_rdma_atomic_counter_t num_complete_msgs;
     /** lock for the region state to ensure consistency */
     ompi_osc_rdma_lock_t regions_lock;
     /** displacement unit for this process */
@@ -209,7 +219,8 @@ struct ompi_osc_rdma_frag_t {
 #endif
 
     struct ompi_osc_rdma_module_t *module;
-    mca_btl_base_registration_handle_t *handle;
+    mca_btl_base_registration_handle_t *handles[OMPI_OSC_RDMA_MAX_BTLS];
+    int handle_count;
 };
 typedef struct ompi_osc_rdma_frag_t ompi_osc_rdma_frag_t;
 OBJ_CLASS_DECLARATION(ompi_osc_rdma_frag_t);
