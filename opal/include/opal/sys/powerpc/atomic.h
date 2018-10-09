@@ -50,6 +50,7 @@
 #define OPAL_HAVE_ATOMIC_OR_32 1
 #define OPAL_HAVE_ATOMIC_XOR_32 1
 #define OPAL_HAVE_ATOMIC_SUB_32 1
+#define OPAL_HAVE_ATOMIC_LOAD_STORE_32 1
 
 
 #if (OPAL_ASSEMBLY_ARCH == OPAL_POWERPC64) || OPAL_ASM_SUPPORT_64BIT
@@ -62,6 +63,7 @@
 #define OPAL_HAVE_ATOMIC_OR_64 1
 #define OPAL_HAVE_ATOMIC_XOR_64 1
 #define OPAL_HAVE_ATOMIC_SUB_64 1
+#define OPAL_HAVE_ATOMIC_LOAD_STORE_64 1
 #endif
 
 
@@ -231,6 +233,18 @@ static inline int32_t opal_atomic_swap_32(volatile int32_t *addr, int32_t newval
    return ret;
 }
 
+static inline int32_t opal_atomic_load_32 (volatile int32_t *addr)
+{
+    int32_t ret;
+    __asm__ __volatile__ ("lwax    %0, 0, %1", : "=&r" (ret) : "r" (addr));
+    return ret;
+}
+
+static inline void opal_atomic_store_32 (volatile int32_t *addr, int32_t value)
+{
+    __asm__ __volatile__ ("stwx    %0, 0, %1", : : "r" (value), "r" (addr) : "memory");
+}
+
 #endif /* OPAL_GCC_INLINE_ASSEMBLY */
 
 
@@ -322,6 +336,18 @@ static inline int64_t opal_atomic_swap_64(volatile int64_t *addr, int64_t newval
                          : "cc", "memory");
 
    return ret;
+}
+
+static inline int32_t opal_atomic_load_64 (volatile int64_t *addr)
+{
+    int64_t ret;
+    __asm__ __volatile__ ("ldax    %0, 0, %1", : "=&r" (ret) : "r" (addr));
+    return ret;
+}
+
+static inline void opal_atomic_store_64 (volatile int64_t *addr, int64_t value)
+{
+    __asm__ __volatile__ ("stdx    %0, 0, %1", : : "r" (value), "r" (addr));
 }
 
 #endif /* OPAL_GCC_INLINE_ASSEMBLY */

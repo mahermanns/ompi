@@ -12,7 +12,7 @@
  *                         All rights reserved.
  * Copyright (c) 2010      IBM Corporation.  All rights reserved.
  * Copyright (c) 2010      ARM ltd.  All rights reserved.
- * Copyright (c) 2016-2017 Los Alamos National Security, LLC. All rights
+ * Copyright (c) 2016-2018 Los Alamos National Security, LLC. All rights
  *                         reserved.
  * $COPYRIGHT$
  *
@@ -45,6 +45,8 @@
 #define OPAL_HAVE_ATOMIC_OR_64 1
 #define OPAL_HAVE_ATOMIC_XOR_64 1
 #define OPAL_HAVE_ATOMIC_SUB_64 1
+#define OPAL_HAVE_ATOMIC_LOAD_STORE_32 1
+#define OPAL_HAVE_ATOMIC_LOAD_STORE_64 1
 
 #define MB()  __asm__ __volatile__ ("dmb sy" : : : "memory")
 #define RMB() __asm__ __volatile__ ("dmb ld" : : : "memory")
@@ -114,6 +116,18 @@ static inline int32_t opal_atomic_swap_32(volatile int32_t *addr, int32_t newval
                           : "cc", "memory");
 
     return ret;
+}
+
+static inline int32_t opal_atomic_load_32 (volatile int32_t *addr)
+{
+    int32_t ret;
+    __asm__ __volatile__ ("ldr    %w0, %1", : "=&r" (ret) : "r" (addr));
+    return ret;
+}
+
+static inline void opal_atomic_store_32 (volatile int32_t *addr, int32_t value)
+{
+    __asm__ __volatile__ ("str    %w0, %1", : : "r" (value), "r" (addr) : "memory");
 }
 
 /* these two functions aren't inlined in the non-gcc case because then
@@ -222,6 +236,18 @@ static inline int64_t opal_atomic_swap_64 (volatile int64_t *addr, int64_t newva
                           : "cc", "memory");
 
     return ret;
+}
+
+static inline int64_t opal_atomic_load_64 (volatile int64_t *addr)
+{
+    int64_t ret;
+    __asm__ __volatile__ ("ldr    %0, %1", : "=&r" (ret) : "r" (addr));
+    return ret;
+}
+
+static inline void opal_atomic_store_64 (volatile int64_t *addr, int64_t value)
+{
+    __asm__ __volatile__ ("str    %0, %1", : : "r" (value), "r" (addr) : "memory");
 }
 
 /* these two functions aren't inlined in the non-gcc case because then

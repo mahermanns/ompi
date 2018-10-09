@@ -48,6 +48,8 @@
 #define OPAL_HAVE_ATOMIC_XOR_64 1
 #define OPAL_HAVE_ATOMIC_SUB_64 1
 #define OPAL_HAVE_ATOMIC_SWAP_64 1
+#define OPAL_HAVE_ATOMIC_LOAD_STORE_32 1
+#define OPAL_HAVE_ATOMIC_LOAD_STORE_64 1
 
 
 static inline void opal_atomic_mb(void)
@@ -249,5 +251,25 @@ static inline void opal_atomic_unlock (opal_atomic_lock_t *lock)
 #if defined(__SUNPRO_C) || defined(__SUNPRO_CC)
 #pragma error_messages(default, E_ARG_INCOMPATIBLE_WITH_ARG_L)
 #endif
+
+static inline int32_t atomic_load_32 (volatile int32_t *addr)
+{
+    return __atomic_load_n (addr, __ATOMIC_RELAXED);
+}
+
+static inline void atomic_store_32 (volatile int32_t *addr, int32_t value)
+{
+    __atomic_store_n (addr, value, __ATOMIC_RELAXED);
+}
+
+static inline int64_t atomic_load_64 (volatile int64_t *addr)
+{
+    return __atomic_load_n (addr, __ATOMIC_RELAXED);
+}
+
+static inline void atomic_store_64 (volatile int64_t *addr, int64_t value)
+{
+    __atomic_store_n (addr, value, __ATOMIC_RELAXED);
+}
 
 #endif /* ! OPAL_SYS_ARCH_ATOMIC_H */

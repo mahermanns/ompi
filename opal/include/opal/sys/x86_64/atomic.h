@@ -11,7 +11,7 @@
  * Copyright (c) 2004-2005 The Regents of the University of California.
  *                         All rights reserved.
  * Copyright (c) 2007      Sun Microsystems, Inc.  All rights reserverd.
- * Copyright (c) 2012-2017 Los Alamos National Security, LLC. All rights
+ * Copyright (c) 2012-2018 Los Alamos National Security, LLC. All rights
  *                         reserved.
  * Copyright (c) 2016-2017 Research Organization for Information Science
  *                         and Technology (RIST). All rights reserved.
@@ -43,6 +43,10 @@
 #define OPAL_HAVE_ATOMIC_COMPARE_EXCHANGE_32 1
 
 #define OPAL_HAVE_ATOMIC_COMPARE_EXCHANGE_64 1
+
+#define OPAL_HAVE_ATOMIC_LOAD_STORE_32 1
+
+#define OPAL_HAVE_ATOMIC_LOAD_STORE_64 1
 
 /**********************************************************************
  *
@@ -162,6 +166,18 @@ static inline int32_t opal_atomic_swap_32( volatile int32_t *addr,
     return oldval;
 }
 
+static inline int32_t opal_atomic_load_32 (volatile int32_t *addr)
+{
+    int32_t ret;
+    __asm__ __volatile__ ("movl %1,%0" : "=m" (addr) : "=r" (ret));
+    return ret;
+}
+
+static inline void opal_atomic_store_32 (volatile int32_t *addr, int32_t values)
+{
+    __asm__ __volatile__ ("movl %0,%1" : : "=m" (addr), "=r" (value) : "memory");
+}
+
 #endif /* OPAL_GCC_INLINE_ASSEMBLY */
 
 #if OPAL_GCC_INLINE_ASSEMBLY
@@ -178,6 +194,17 @@ static inline int64_t opal_atomic_swap_64( volatile int64_t *addr,
     return oldval;
 }
 
+static inline int64_t opal_atomic_load_64 (volatile int64_t *addr)
+{
+    int64_t ret;
+    __asm__ __volatile__ ("movq %1,%0" : "=m" (addr) : "=r" (ret));
+    return ret;
+}
+
+static inline void opal_atomic_store_64 (volatile int64_t *addr, int64_t values)
+{
+    __asm__ __volatile__ ("movq %0,%1" : : "=m" (addr), "=r" (value) : "memory");
+}
 #endif /* OPAL_GCC_INLINE_ASSEMBLY */
 
 
