@@ -69,6 +69,7 @@ nodist_libmpi_c_pmpi_la_SOURCES = \
         pcancel.c \
         pcart_coords.c \
         pcart_create.c \
+        pcart_create_from_group.c \
         pcartdim_get.c \
         pcart_get.c \
         pcart_map.c \
@@ -107,7 +108,9 @@ nodist_libmpi_c_pmpi_la_SOURCES = \
         pcomm_set_attr.c \
         pcomm_set_info.c \
         pdist_graph_create.c \
+        pdist_graph_create_from_group.c \
         pdist_graph_create_adjacent.c \
+        pdist_graph_create_adjacent_from_group.c \
         pdist_graph_neighbors.c \
         pdist_graph_neighbors_count.c \
         pcomm_set_errhandler.c \
@@ -205,6 +208,7 @@ nodist_libmpi_c_pmpi_la_SOURCES = \
         pget_processor_name.c \
         pget_version.c \
         pgraph_create.c \
+        pgraph_create_from_group.c \
         pgraph_get.c \
         pgraph_map.c \
         pgraph_neighbors_count.c \
