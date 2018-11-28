@@ -748,7 +748,6 @@ int ompi_rte_init(int *pargc, char ***pargv)
     return OPAL_SUCCESS;
 
   error:
-    opal_show_help_finalize();
     if (OPAL_ERR_SILENT != ret ) {
         opal_show_help("help-ompi-rte-pmix.txt",
                        "internal-failure",
@@ -807,6 +806,9 @@ int ompi_rte_finalize(void)
                                 false, check_file);
         free(pmix_process_info.job_session_dir);
     }
+
+    opal_finalize ();
+
     return OMPI_SUCCESS;
 }
 
