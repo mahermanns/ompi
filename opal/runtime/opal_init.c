@@ -65,6 +65,7 @@
 #include "opal/mca/compress/base/base.h"
 #endif
 #include "opal/threads/threads.h"
+#include "opal/threads/tsd.h"
 
 #include "opal/runtime/opal_cr.h"
 #include "opal/mca/crs/base/base.h"
@@ -359,6 +360,10 @@ static int opal_init_error (const char *error, int ret)
     return ret;
 }
 
+static mca_base_framework_t *opal_init_util_frameworks[] = {
+    &opal_installdirs_base_framework, &opal_if_base_framework, NULL,
+};
+
 int
 opal_init_util(int* pargc, char*** pargv)
 {
@@ -374,11 +379,17 @@ opal_init_util(int* pargc, char*** pargv)
         return OPAL_SUCCESS;
     }
 
-    OBJ_CONSTRUCT(&opal_finalize_cleanup_fns, opal_list_t);
+
+    OBJ_CONSTRUCT(&opal_init_util_domain, opal_finalize_domain_t);
+    (void) opal_finalize_domain_init (&opal_init_util_domain, "opal_init_util");
+    opal_finalize_set_domain (&opal_init_util_domain);
 
     opal_thread_set_main();
 
     opal_init_called = true;
+
+    /* register for */
+    opal_finalize_register_cleanup_arg (mca_base_framework_close_list, opal_init_util_frameworks);
 
     /* set the nodename right away so anyone who needs it has it. Note
      * that we don't bother with fqdn and prefix issues here - we let
@@ -506,6 +517,16 @@ opal_init_util(int* pargc, char*** pargv)
 }
 
 
+/* the memcpy component should be one of the first who get
+ * loaded in order to make sure we have all the available
+ * versions of memcpy correctly configured.
+ */
+static mca_base_framework_t *opal_init_frameworks[] = {
+    &opal_hwloc_base_framework, &opal_memcpy_base_framework, &opal_memchecker_base_framework,
+    &opal_backtrace_base_framework, &opal_timer_base_framework, &opal_event_base_framework,
+    &opal_shmem_base_framework, &opal_reachable_base_framework, NULL,
+};
+
 int
 opal_init(int* pargc, char*** pargv)
 {
@@ -523,19 +544,16 @@ opal_init(int* pargc, char*** pargv)
         return ret;
     }
 
-    /* open hwloc - since this is a static framework, no
-     * select is required
-     */
-    if (OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_hwloc_base_framework, 0))) {
-        return opal_init_error ("opal_hwloc_base_open", ret);
-    }
+    OBJ_CONSTRUCT(&opal_init_domain, opal_finalize_domain_t);
+    (void) opal_finalize_domain_init (&opal_init_domain, "opal_init");
+    opal_finalize_set_domain (&opal_init_domain);
 
-    /* the memcpy component should be one of the first who get
-     * loaded in order to make sure we have all the available
-     * versions of memcpy correctly configured.
-     */
-    if (OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_memcpy_base_framework, 0))) {
-        return opal_init_error ("opal_memcpy_base_open", ret);
+    opal_finalize_register_cleanup_arg (mca_base_framework_close_list, opal_init_frameworks);
+    opal_finalize_register_cleanup (opal_tsd_keys_destruct);
+
+    ret = mca_base_framework_open_list (opal_init_frameworks, 0);
+    if (OPAL_UNLIKELY(OPAL_SUCCESS != ret)) {
+        return opal_init_error ("opal_init framework open", ret);
     }
 
     /* initialize the memory manager / tracker */
@@ -543,34 +561,9 @@ opal_init(int* pargc, char*** pargv)
         return opal_init_error ("opal_mem_hooks_init", ret);
     }
 
-    /* initialize the memory checker, to allow early support for annotation */
-    if (OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_memchecker_base_framework, 0))) {
-        return opal_init_error ("opal_memchecker_base_open", ret);
-    }
-
     /* select the memory checker */
     if (OPAL_SUCCESS != (ret = opal_memchecker_base_select())) {
         return opal_init_error ("opal_memchecker_base_select", ret);
-    }
-
-    if (OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_backtrace_base_framework, 0))) {
-        return opal_init_error ("opal_backtrace_base_open", ret);
-    }
-
-    if (OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_timer_base_framework, 0))) {
-        return opal_init_error ("opal_timer_base_open", ret);
-    }
-
-    /*
-     * Need to start the event and progress engines if none else is.
-     * opal_cr_init uses the progress engine, so it is lumped together
-     * into this set as well.
-     */
-    /*
-     * Initialize the event library
-     */
-    if (OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_event_base_framework, 0))) {
-        return opal_init_error ("opal_event_base_open", ret);
     }
 
     /*
@@ -583,45 +576,13 @@ opal_init(int* pargc, char*** pargv)
     opal_progress_event_users_increment();
 
     /* setup the shmem framework */
-    if (OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_shmem_base_framework, 0))) {
-        return opal_init_error ("opal_shmem_base_open", ret);
-    }
-
     if (OPAL_SUCCESS != (ret = opal_shmem_base_select())) {
         return opal_init_error ("opal_shmem_base_select", ret);
     }
 
-    /* Load reachable framework */
-    if (OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_reachable_base_framework, 0))){
-        return opal_init_error ("opal_reachable_base_framework", ret);
-    }
+    /* Intitialize reachable framework */
     if (OPAL_SUCCESS != (ret = opal_reachable_base_select())) {
         return opal_init_error ("opal_reachable_base_select", ret);
-    }
-
-#if OPAL_ENABLE_FT_CR    == 1
-    /*
-     * Initialize the compression framework
-     * Note: Currently only used in C/R so it has been marked to only
-     *       initialize when C/R is enabled. If other places in the code
-     *       wish to use this framework, it is safe to remove the protection.
-     */
-    if( OPAL_SUCCESS != (ret = mca_base_framework_open(&opal_compress_base_framework, 0)) ) {
-        return opal_init_error ("opal_compress_base_open", ret);
-    }
-    if( OPAL_SUCCESS != (ret = opal_compress_base_select()) ) {
-        return opal_init_error ("opal_compress_base_select", ret);
-    }
-#endif
-
-    /*
-     * Initalize the checkpoint/restart functionality
-     * Note: Always do this so we can detect if the user
-     * attempts to checkpoint a non checkpointable job,
-     * otherwise the tools may hang or not clean up properly.
-     */
-    if (OPAL_SUCCESS != (ret = opal_cr_init() ) ) {
-        return opal_init_error ("opal_cr_init", ret);
     }
 
     return OPAL_SUCCESS;

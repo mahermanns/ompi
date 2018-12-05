@@ -38,7 +38,6 @@
 #include "opal/memoryhooks/memory.h"
 #include "opal/runtime/opal.h"
 #include "opal/constants.h"
-#include "opal/frameworks.h"
 #include "opal/threads/tsd.h"
 #include "opal/runtime/opal_cr.h"
 #include "opal/runtime/opal_progress.h"
@@ -51,8 +50,9 @@ static opal_mutex_t opal_finalize_cleanup_fns_lock = OPAL_MUTEX_STATIC_INIT;
 opal_list_t opal_finalize_cleanup_fns = {{0}};
 
 struct opal_cleanup_fn_item_t {
-    opal_list_item_t super;
+    opal_list_item_t  super;
     opal_cleanup_fn_t cleanup_fn;
+    void             *user_data;
 #if OPAL_ENABLE_DEBUG
     char *cleanup_fn_name;
 #endif
@@ -80,11 +80,30 @@ static void opal_cleanup_fn_item_destruct (opal_cleanup_fn_item_t *item)
 OBJ_CLASS_INSTANCE(opal_cleanup_fn_item_t, opal_list_item_t,
                    opal_cleanup_fn_item_construct, opal_cleanup_fn_item_destruct);
 
-void opal_finalize_append_cleanup (opal_cleanup_fn_t cleanup_fn, const char *fn_name)
+static void opal_finalize_domain_construct (opal_finalize_domain_t *domain)
+{
+    domain->domain_name = NULL;
+}
+
+static void opal_finalize_domain_destruct (opal_finalize_domain_t *domain)
+{
+    free (domain->domain_name);
+    domain->domain_name = NULL;
+}
+
+OBJ_CLASS_INSTANCE(opal_finalize_domain_t, opal_list_t, opal_finalize_domain_construct,
+                   opal_finalize_domain_destruct);
+
+static opal_finalize_domain_t *current_finalize_domain;
+opal_finalize_domain_t opal_init_util_domain;
+opal_finalize_domain_t opal_init_domain;
+
+void opal_finalize_append_cleanup (opal_cleanup_fn_t cleanup_fn, const char *fn_name, void *user_data)
 {
     opal_cleanup_fn_item_t *cleanup_item = OBJ_NEW(opal_cleanup_fn_item_t);
     assert (NULL != cleanup_item);
     cleanup_item->cleanup_fn = cleanup_fn;
+    cleanup_item->user_data = user_data;
 #if OPAL_ENABLE_DEBUG
     cleanup_item->cleanup_fn_name = strdup (fn_name);
     assert (NULL != cleanup_item->cleanup_fn_name);
@@ -92,32 +111,47 @@ void opal_finalize_append_cleanup (opal_cleanup_fn_t cleanup_fn, const char *fn_
     (void) fn_name;
 #endif
 
+    fprintf (stderr, "OPAL finalize append cleanup: fn: %p, name: %s, domain: %s\n", (void *) cleanup_fn,
+             fn_name, current_finalize_domain->domain_name);
+
     opal_mutex_lock (&opal_finalize_cleanup_fns_lock);
-    opal_list_append (&opal_finalize_cleanup_fns, &cleanup_item->super);
+    opal_list_append (&current_finalize_domain->super, &cleanup_item->super);
     opal_mutex_unlock (&opal_finalize_cleanup_fns_lock);
+}
+
+void opal_finalize_domain_init (opal_finalize_domain_t *domain, const char *domain_name)
+{
+    free (domain->domain_name);
+    domain->domain_name = domain_name ? strdup (domain_name) : NULL;
+}
+
+void opal_finalize_set_domain (opal_finalize_domain_t *domain)
+{
+    current_finalize_domain = domain;
+}
+
+void opal_finalize_cleanup_domain (opal_finalize_domain_t *domain)
+{
+    opal_cleanup_fn_item_t *cleanup_item, *next;
+    /* call any registered cleanup functions before tearing down OPAL */
+    OPAL_LIST_FOREACH_SAFE_REV(cleanup_item, next, &domain->super, opal_cleanup_fn_item_t) {
+        cleanup_item->cleanup_fn (cleanup_item->user_data);
+        opal_list_remove_item (&domain->super, &cleanup_item->super);
+        OBJ_RELEASE(cleanup_item);
+    }
 }
 
 int opal_finalize_util (void)
 {
-    opal_cleanup_fn_item_t *cleanup_item;
-
-    if( --opal_util_initialized != 0 ) {
-        if( opal_util_initialized < 0 ) {
+    if (--opal_util_initialized != 0) {
+        if (opal_util_initialized < 0) {
             return OPAL_ERROR;
         }
         return OPAL_SUCCESS;
     }
 
-    /* call any registered cleanup functions before tearing down OPAL */
-    OPAL_LIST_FOREACH_REV(cleanup_item, &opal_finalize_cleanup_fns, opal_cleanup_fn_item_t) {
-        cleanup_item->cleanup_fn ();
-    }
-
-    OPAL_LIST_DESTRUCT(&opal_finalize_cleanup_fns);
-
-    /* close interfaces code. */
-    (void) mca_base_framework_close(&opal_if_base_framework);
-    (void) mca_base_framework_close(&opal_installdirs_base_framework);
+    opal_finalize_cleanup_domain (&opal_init_util_domain);
+    OBJ_DESTRUCT(&opal_init_util_domain);
 
     /* finalize the class/object system */
     opal_class_finalize();
@@ -129,49 +163,17 @@ int opal_finalize_util (void)
 }
 
 
-int
-opal_finalize(void)
+int opal_finalize(void)
 {
-    if( --opal_initialized != 0 ) {
-        if( opal_initialized < 0 ) {
+    if (--opal_initialized != 0) {
+        if (opal_initialized < 0) {
             return OPAL_ERROR;
         }
         return OPAL_SUCCESS;
     }
 
-    opal_progress_finalize();
-
-    /* close the checkpoint and restart service */
-    opal_cr_finalize();
-
-#if OPAL_ENABLE_FT_CR    == 1
-    (void) mca_base_framework_close(&opal_compress_base_framework);
-#endif
-
-    (void) mca_base_framework_close(&opal_reachable_base_framework);
-
-    (void) mca_base_framework_close(&opal_event_base_framework);
-
-    /* close high resolution timers */
-    (void) mca_base_framework_close(&opal_timer_base_framework);
-
-    (void) mca_base_framework_close(&opal_backtrace_base_framework);
-    (void) mca_base_framework_close(&opal_memchecker_base_framework);
-
-    /* close the memcpy framework */
-    (void) mca_base_framework_close(&opal_memcpy_base_framework);
-
-    /* finalize the memory manager / tracker */
-    opal_mem_hooks_finalize();
-
-    /* close the hwloc framework */
-    (void) mca_base_framework_close(&opal_hwloc_base_framework);
-
-    /* close the shmem framework */
-    (void) mca_base_framework_close(&opal_shmem_base_framework);
-
-    /* cleanup the main thread specific stuff */
-    opal_tsd_keys_destruct();
+    opal_finalize_cleanup_domain (&opal_init_domain);
+    OBJ_DESTRUCT(&opal_init_domain);
 
     /* finalize util code */
     opal_finalize_util();
