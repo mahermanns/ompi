@@ -89,6 +89,7 @@ BEGIN_C_DECLS
 #define OPAL_PMIX_VERSION_INFO                  "pmix.version"          // (char*) PMIx version of contactor
 #define OPAL_PMIX_REQUESTOR_IS_TOOL             "pmix.req.tool"         // (bool) requesting process is a tool
 #define OPAL_PMIX_REQUESTOR_IS_CLIENT           "pmix.req.client"       // (bool) requesting process is a client process
+#define OPAL_PMIX_PSET_NAME                      "pmix.pset.nm"          // (char*) user-assigned name for the process
 
 /* model attributes */
 #define OPAL_PMIX_PROGRAMMING_MODEL             "pmix.pgm.model"        // (char*) programming model being initialized (e.g., "MPI" or "OpenMP")
@@ -364,6 +365,10 @@ BEGIN_C_DECLS
                                                                         //         is being requested
 #define OPAL_PMIX_TIME_REMAINING                "pmix.time.remaining"   // (char*) query number of seconds (uint32_t) remaining in allocation
                                                                         //         for the specified nspace
+#define OPAL_PMIX_QUERY_NUM_PSETS               "pmix.qry.psetnum"      // (size_t) return the number of psets defined
+                                                                        //          in the specified range (defaults to session)
+#define OPAL_PMIX_QUERY_PSET_NAMES              "pmix.qry.psets"        // (char*) return a comma-delimited list of the names of the
+                                                                        //         psets defined in the specified range (defaults to session)
 
 
 /* log attributes */
