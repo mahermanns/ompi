@@ -273,6 +273,16 @@ static int ompi_osc_rdma_component_register (void)
                                             MCA_BASE_VAR_TYPE_STRING, NULL, 0, 0, OPAL_INFO_LVL_3,
                                             MCA_BASE_VAR_SCOPE_READONLY, &mca_osc_rdma_component.backing_directory);
 
+    mca_osc_rdma_component.network_amo_max_count = 32;
+    (void) mca_base_component_var_register (&mca_osc_rdma_component.super.osc_version, "network_max_amo",
+                                            "Maximum predefined datatype count for which network atomic operations "
+                                            "will be used. Accumulate operations larger than this count will use "
+                                            "a get/op/put protocol. The optimal value is dictated by the network "
+                                            "injection rate for the interconnect. Generally a smaller number will "
+                                            "yield better larger accumulate performance. (default: 32)",
+                                            MCA_BASE_VAR_TYPE_UNSIGNED_LONG, NULL, 0, 0, OPAL_INFO_LVL_3,
+                                            MCA_BASE_VAR_SCOPE_LOCAL, &mca_osc_rdma_component.network_amo_max_count);
+
     /* register performance variables */
 
     (void) mca_base_component_pvar_register (&mca_osc_rdma_component.super.osc_version, "put_retry_count",
@@ -1132,6 +1142,7 @@ static int ompi_osc_rdma_component_select (struct ompi_win_t *win, void **base, 
     module->locking_mode   = mca_osc_rdma_component.locking_mode;
     module->acc_single_intrinsic = check_config_value_bool ("acc_single_intrinsic", info);
     module->acc_use_amo = mca_osc_rdma_component.acc_use_amo;
+    module->network_amo_max_count = mca_osc_rdma_component.network_amo_max_count;
 
     module->all_sync.module = module;
 
