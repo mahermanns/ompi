@@ -19,6 +19,8 @@
  * Copyright (c) 2016-2017 IBM Corporation. All rights reserved.
  * Copyright (c) 2018      Cisco Systems, Inc.  All rights reserved
  * Copyright (c) 2018      Amazon.com, Inc. or its affiliates.  All Rights reserved.
+ * Copyright (c) 2019      Triad National Security, LLC. All rights
+ *                         reserved.
  * $COPYRIGHT$
  *
  * Additional copyrights may follow
@@ -650,24 +652,35 @@ static int allocate_state_shared (ompi_osc_rdma_module_t *module, void **base, s
         if (0 == local_rank) {
             /* unlink the shared memory backing file */
             opal_shmem_unlink (&module->seg_ds);
-            /* just go ahead and register the whole segment */
-            ret = ompi_osc_rdma_register (module, MCA_BTL_ENDPOINT_ANY, module->segment_base, total_size, MCA_BTL_REG_FLAG_ACCESS_ANY,
-                                          &module->state_handle);
-            if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
-                break;
-            }
-
-            state_region->base = (intptr_t) module->segment_base;
-            if (module->state_handle) {
-                memcpy (state_region->btl_handle_data, module->state_handle, module->selected_btl->btl_registration_handle_size);
+            if (local_size != global_size) {
+                /* just go ahead and register the whole segment */
+                ret = ompi_osc_rdma_register (module, MCA_BTL_ENDPOINT_ANY, module->segment_base, total_size, MCA_BTL_REG_FLAG_ACCESS_ANY,
+                                              &module->state_handle);
+                if (OPAL_LIKELY(OMPI_SUCCESS == ret)) {
+                    state_region->base = (intptr_t) module->segment_base;
+                    if (module->state_handle) {
+                        memcpy (state_region->btl_handle_data, module->state_handle, module->selected_btl->btl_registration_handle_size);
+                    }
+                }
+            } else {
+                ret = OMPI_SUCCESS;
             }
         }
 
-        /* barrier to make sure memory is registered */
-        shared_comm->c_coll->coll_barrier(shared_comm, shared_comm->c_coll->coll_barrier_module);
+        /* ensure all ranks get the same result. this bcast also ensures no rank continues until local rank 0
+         * has attempted to register the state. */
+        shared_comm->c_coll->coll_bcast (&ret, 1, MPI_INT, 0, shared_comm, shared_comm->c_coll->coll_bcast_module);
+        if (OPAL_UNLIKELY(OMPI_SUCCESS != ret)) {
+            break;
+        }
 
         if (MPI_WIN_FLAVOR_CREATE == module->flavor) {
             ret = ompi_osc_rdma_initialize_region (module, base, size);
+
+            /* ensure all ranks get the same result */
+            shared_comm->c_coll->coll_allreduce (MPI_IN_PLACE, &ret, 1, MPI_INT, MPI_MIN, shared_comm,
+                                                 shared_comm->c_coll->coll_allreduce_module);
+
             if (OMPI_SUCCESS != ret) {
                 break;
             }
@@ -711,7 +724,7 @@ static int allocate_state_shared (ompi_osc_rdma_module_t *module, void **base, s
                 peer->state_endpoint = NULL;
             } else {
                 /* use my endpoint handle to modify the peer's state */
-                if (module->selected_btl->btl_register_mem) {
+                if (module->selected_btl->btl_register_mem && local_size != global_size) {
                     peer->state_handle = (mca_btl_base_registration_handle_t *) state_region->btl_handle_data;
                 }
                 peer->state = (osc_rdma_counter_t) ((uintptr_t) state_region->base + state_base + module->state_size * i);
@@ -967,7 +980,7 @@ static int ompi_osc_rdma_share_data (ompi_osc_rdma_module_t *module)
             /* store my rank in the length field */
             my_data->len = (osc_rdma_size_t) my_rank;
 
-            if (module->selected_btl->btl_register_mem) {
+            if (module->selected_btl->btl_register_mem && module->state_handle) {
                 memcpy (my_data->btl_handle_data, module->state_handle, module->selected_btl->btl_registration_handle_size);
             }
 
